@@ -63,6 +63,10 @@ gimp_gui_init (Gimp *gimp)
   gimp->gui.progress_free          = NULL;
   gimp->gui.pdb_dialog_set         = NULL;
   gimp->gui.pdb_dialog_close       = NULL;
+  gimp->gui.extension_panel_register = NULL;
+  gimp->gui.extension_panel_update = NULL;
+  gimp->gui.extension_panel_show   = NULL;
+  gimp->gui.extension_panel_unregister = NULL;
   gimp->gui.recent_list_add_file   = NULL;
   gimp->gui.recent_list_load       = NULL;
   gimp->gui.get_mount_operation    = NULL;

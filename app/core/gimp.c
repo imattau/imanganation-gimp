@@ -37,6 +37,7 @@
 #include "pdb/gimppdb.h"
 #include "pdb/gimp-pdb-compat.h"
 #include "pdb/internal-procs.h"
+#include "pdb/extension-panel-cmds.h"
 
 #include "plug-in/gimppluginmanager.h"
 #include "plug-in/gimppluginmanager-restore.h"
@@ -562,6 +563,7 @@ gimp_real_initialize (Gimp               *gimp,
   /*  register all internal procedures  */
   status_callback (NULL, _("Internal Procedures"), 0.2);
   internal_procs_init (gimp->pdb);
+  extension_panel_procs_init (gimp->pdb);
   gimp_pdb_compat_procs_register (gimp->pdb, gimp->pdb_compat_mode);
 
   gimp_plug_in_manager_initialize (gimp->plug_in_manager, status_callback);

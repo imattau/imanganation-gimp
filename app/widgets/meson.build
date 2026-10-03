@@ -99,6 +99,7 @@ libappwidgets_sources = [
   'gimpdevicestatus.c',
   'gimpdial.c',
   'gimpdialogfactory.c',
+  'gimpextensionpanel.c',
   'gimpdnd-xds.c',
   'gimpdnd.c',
   'gimpdock.c',

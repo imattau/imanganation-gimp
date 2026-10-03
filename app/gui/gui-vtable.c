@@ -81,6 +81,7 @@
 #include "widgets/gimpactiongroup.h"
 #include "widgets/gimpbrushselect.h"
 #include "widgets/gimpdialogfactory.h"
+#include "widgets/gimpextensionpanel.h"
 #include "widgets/gimpdocked.h"
 #include "widgets/gimpfontselect.h"
 #include "widgets/gimpgradientselect.h"
@@ -230,6 +231,10 @@ gui_vtable_init (Gimp *gimp)
   gimp->gui.pdb_dialog_new         = gui_pdb_dialog_new;
   gimp->gui.pdb_dialog_set         = gui_pdb_dialog_set;
   gimp->gui.pdb_dialog_close       = gui_pdb_dialog_close;
+  gimp->gui.extension_panel_register = gimp_extension_panel_register;
+  gimp->gui.extension_panel_update = gimp_extension_panel_update;
+  gimp->gui.extension_panel_show   = gimp_extension_panel_show;
+  gimp->gui.extension_panel_unregister = gimp_extension_panel_unregister;
   gimp->gui.recent_list_add_file   = gui_recent_list_add_file;
   gimp->gui.recent_list_load       = gui_recent_list_load;
   gimp->gui.get_mount_operation    = gui_get_mount_operation;

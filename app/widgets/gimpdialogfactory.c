@@ -297,6 +297,43 @@ gimp_dialog_factory_register_entry (GimpDialogFactory    *factory,
                                                    entry);
 }
 
+void
+gimp_dialog_factory_unregister_entry (GimpDialogFactory *factory,
+                                      const gchar       *identifier)
+{
+  GimpDialogFactoryEntry *entry;
+  GList *iter;
+
+  g_return_if_fail (GIMP_IS_DIALOG_FACTORY (factory));
+  g_return_if_fail (identifier != NULL);
+
+  entry = gimp_dialog_factory_find_entry (factory, identifier);
+  if (!entry)
+    return;
+
+  for (iter = factory->p->session_infos; iter; )
+    {
+      GList *next = iter->next;
+      GimpSessionInfo *info = iter->data;
+      if (gimp_session_info_get_factory_entry (info) == entry)
+        {
+          factory->p->session_infos = g_list_delete_link (
+            factory->p->session_infos, iter);
+          g_object_unref (info);
+        }
+      iter = next;
+    }
+
+  factory->p->registered_dialogs = g_list_remove (factory->p->registered_dialogs,
+                                                   entry);
+  g_free (entry->identifier);
+  g_free (entry->name);
+  g_free (entry->blurb);
+  g_free (entry->icon_name);
+  g_free (entry->help_id);
+  g_slice_free (GimpDialogFactoryEntry, entry);
+}
+
 GimpDialogFactoryEntry *
 gimp_dialog_factory_find_entry (GimpDialogFactory *factory,
                                 const gchar       *identifier)

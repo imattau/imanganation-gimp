@@ -39,6 +39,7 @@
 #include "core/gimplist.h"
 
 #include "widgets/gimpdialogfactory.h"
+#include "widgets/gimpextensionpanel.h"
 #include "widgets/gimpdockwindow.h"
 #include "widgets/gimphelp-ids.h"
 #include "widgets/gimpmenufactory.h"
@@ -533,6 +534,9 @@ dialogs_init (Gimp *gimp)
 
   factory = gimp_dialog_factory_new ("toplevel", gimp_get_user_context (gimp));
   gimp_dialog_factory_set_singleton (factory);
+  gimp_extension_panel_dialogs_init (factory);
+  g_signal_connect (gimp->plug_in_manager, "plug-in-closed",
+                    G_CALLBACK (gimp_extension_panel_plugin_closed), NULL);
 
   for (i = 0; i < G_N_ELEMENTS (entries); i++)
     gimp_dialog_factory_register_entry (factory,

@@ -86,6 +86,31 @@ struct _GimpGui
   gboolean       (* pdb_dialog_close)       (Gimp                *gimp,
                                              GType                contents_type,
                                              const gchar         *callback_name);
+  gboolean       (* extension_panel_register) (Gimp              *gimp,
+                                               const gchar       *owner,
+                                               const gchar       *identifier,
+                                               const gchar       *title,
+                                               const gchar       *content,
+                                               const gchar       *presentation,
+                                               const gchar       *selected_item,
+                                               const gchar       *action_label,
+                                               const gchar       *action_procedure,
+                                               const gchar       *item_action_procedure,
+                                               GError           **error);
+  gboolean       (* extension_panel_update) (Gimp                *gimp,
+                                             const gchar         *owner,
+                                             const gchar         *identifier,
+                                             const gchar         *content,
+                                             const gchar         *selected_item,
+                                             GError             **error);
+  gboolean       (* extension_panel_show)   (Gimp                *gimp,
+                                             const gchar         *owner,
+                                             const gchar         *identifier,
+                                             GError             **error);
+  gboolean       (* extension_panel_unregister) (Gimp             *gimp,
+                                                 const gchar      *owner,
+                                                 const gchar      *identifier,
+                                                 GError          **error);
   gboolean       (* recent_list_add_file)   (Gimp                *gimp,
                                              GFile               *file,
                                              const gchar         *mime_type);

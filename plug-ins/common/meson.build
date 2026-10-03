@@ -1,4 +1,5 @@
 common_plugins_list = [
+  { 'name': 'extension-panels', },
   { 'name': 'align-layers', },
   { 'name': 'animation-optimize', },
   { 'name': 'animation-play', },

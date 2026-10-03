@@ -129,6 +129,8 @@ void                gimp_dialog_factory_register_entry       (GimpDialogFactory 
                                                               gboolean                 hideable,
                                                               gboolean                 image_window,
                                                               gboolean                 dockable);
+void                gimp_dialog_factory_unregister_entry     (GimpDialogFactory       *factory,
+                                                              const gchar             *identifier);
 
 GimpDialogFactoryEntry *
                     gimp_dialog_factory_find_entry           (GimpDialogFactory       *factory,

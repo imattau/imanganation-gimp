@@ -59,6 +59,7 @@
 #include "widgets/gimpcontrollers.h"
 #include "widgets/gimpdevices.h"
 #include "widgets/gimpdialogfactory.h"
+#include "widgets/gimpextensionpanel.h"
 #include "widgets/gimpdnd.h"
 #include "widgets/gimprender.h"
 #include "widgets/gimphelp.h"
@@ -691,6 +692,8 @@ gui_restore_after_callback (Gimp               *gimp,
 
       if (gui_config->restore_session)
         session_restore (gimp, initial_monitor);
+
+      gimp_extension_panel_show_unrestored (gimp);
 
       toplevel = gtk_widget_get_toplevel (GTK_WIDGET (shell));
 

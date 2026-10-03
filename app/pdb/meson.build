@@ -23,6 +23,7 @@ libappinternalprocs_sources = [
   'drawable-select-cmds.c',
   'dynamics-cmds.c',
   'edit-cmds.c',
+  'extension-panel-cmds.c',
   'file-cmds.c',
   'floating-sel-cmds.c',
   'font-cmds.c',
