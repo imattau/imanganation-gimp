@@ -114,7 +114,9 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        "may use id<TAB>label; tile rows may add a third tab-separated "
                                                        "absolute PNG preview path. Legacy rows use their label as the id. "
                                                        "Properties use '# ' section headings and tab-separated name/value "
-                                                       "rows. Content is limited to 1 MiB, "
+                                                       "rows, plus '@key<TAB>name<TAB>value' editable fields and "
+                                                       "'!procedure<TAB>label' buttons (a no-argument procedure of the "
+                                                       "same plug-in). Content is limited to 1 MiB, "
                                                        "2048 rows, and 4096 bytes per row.",
                                                        FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
@@ -142,7 +144,8 @@ extension_panel_procs_init (GimpPDB *pdb)
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("item-action-procedure", "item action procedure",
                                                        "One-string procedure called with the activated item's stable row id "
-                                                       "(or legacy label), or empty",
+                                                       "(or legacy label); for properties, with 'key<TAB>value' when a "
+                                                       "field is edited. Or empty",
                                                        FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);

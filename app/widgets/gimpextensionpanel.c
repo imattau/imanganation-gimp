@@ -598,6 +598,185 @@ panel_create_tree_content (GimpExtensionPanel *panel,
   return tree;
 }
 
+/* Properties fields and buttons. A content row "@key\tLabel\tvalue" is an
+ * editable field: Enter or leaving it commits by running the panel's item
+ * action with "key\tnew value", Escape reverts. A row "!procedure\tLabel" is a
+ * button running that procedure of the same plug-in. Both run from an idle,
+ * because the action usually updates (so rebuilds) this very panel. */
+typedef struct
+{
+  gchar *owner;
+  gchar *identifier;
+  gchar *procedure;
+  gchar *item;
+} PanelDeferredRun;
+
+static gboolean panel_rebuilding = FALSE;
+
+static gboolean
+panel_deferred_run_idle (gpointer data)
+{
+  PanelDeferredRun *run = data;
+  GimpExtensionPanel *panel = panel_lookup (run->owner, run->identifier);
+  GError *error = NULL;
+
+  if (panel)
+    {
+      if (panel_action_is_valid (panel->gimp, panel->owner, run->procedure,
+                                 run->item != NULL, &error))
+        panel_run_procedure (panel, run->procedure, run->item);
+      else
+        {
+          gimp_message_literal (panel->gimp, NULL, GIMP_MESSAGE_ERROR,
+                                error->message);
+          g_clear_error (&error);
+        }
+    }
+  g_free (run->owner);
+  g_free (run->identifier);
+  g_free (run->procedure);
+  g_free (run->item);
+  g_free (run);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+panel_defer_run (GimpExtensionPanel *panel,
+                 const gchar        *procedure,
+                 const gchar        *item)
+{
+  PanelDeferredRun *run;
+
+  if (!procedure || !*procedure)
+    return;
+  run = g_new0 (PanelDeferredRun, 1);
+  run->owner = g_strdup (panel->owner);
+  run->identifier = g_strdup (panel->identifier);
+  run->procedure = g_strdup (procedure);
+  run->item = g_strdup (item);
+  g_idle_add (panel_deferred_run_idle, run);
+}
+
+static gchar *
+panel_field_text (GtkWidget *view)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+  GtkTextIter start, end;
+
+  gtk_text_buffer_get_bounds (buffer, &start, &end);
+  return gtk_text_buffer_get_text (buffer, &start, &end, FALSE);
+}
+
+static void
+panel_field_commit (GtkWidget          *view,
+                    GimpExtensionPanel *panel)
+{
+  const gchar *key = g_object_get_data (G_OBJECT (view),
+                                        "extension-panel-field-key");
+  const gchar *value = g_object_get_data (G_OBJECT (view),
+                                          "extension-panel-field-value");
+  const gchar *sent = g_object_get_data (G_OBJECT (view),
+                                         "extension-panel-field-sent");
+  gchar *text;
+
+  if (panel_rebuilding || !key || !value)
+    return;  /* replaced by an update, which carries any edit over */
+  text = panel_field_text (view);
+  if (strcmp (text, value) && g_strcmp0 (text, sent))
+    {
+      gchar *item = g_strdup_printf ("%s\t%s", key, text);
+
+      /* Enter then focus-out must not commit twice; Escape still reverts to
+       * the panel's value if the owner rejects the edit */
+      g_object_set_data_full (G_OBJECT (view), "extension-panel-field-sent",
+                              g_strdup (text), g_free);
+      panel_defer_run (panel, panel->item_action_procedure, item);
+      g_free (item);
+    }
+  g_free (text);
+}
+
+static gboolean
+panel_field_key_press (GtkWidget          *view,
+                       GdkEventKey        *event,
+                       GimpExtensionPanel *panel)
+{
+  switch (event->keyval)
+    {
+    case GDK_KEY_Return:
+    case GDK_KEY_KP_Enter:
+    case GDK_KEY_ISO_Enter:
+      panel_field_commit (view, panel);  /* rows are single lines */
+      return TRUE;
+
+    case GDK_KEY_Escape:
+      gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (view)),
+                                g_object_get_data (G_OBJECT (view),
+                                                   "extension-panel-field-value"),
+                                -1);
+      return TRUE;
+
+    default:
+      return FALSE;
+    }
+}
+
+static gboolean
+panel_field_focus_out (GtkWidget          *view,
+                       GdkEvent           *event,
+                       GimpExtensionPanel *panel)
+{
+  panel_field_commit (view, panel);
+  return FALSE;
+}
+
+static void
+panel_button_clicked (GtkButton          *button,
+                      GimpExtensionPanel *panel)
+{
+  panel_defer_run (panel,
+                   g_object_get_data (G_OBJECT (button),
+                                      "extension-panel-procedure"),
+                   NULL);
+}
+
+static GtkWidget *
+panel_find_field (GtkWidget   *widget,
+                  const gchar *key)
+{
+  const gchar *field_key = g_object_get_data (G_OBJECT (widget),
+                                              "extension-panel-field-key");
+  GtkWidget *found = NULL;
+
+  if (field_key && !strcmp (field_key, key))
+    return widget;
+  if (GTK_IS_CONTAINER (widget))
+    {
+      GList *children = gtk_container_get_children (GTK_CONTAINER (widget));
+      GList *list;
+
+      for (list = children; list && !found; list = list->next)
+        found = panel_find_field (list->data, key);
+      g_list_free (children);
+    }
+  return found;
+}
+
+static GtkWidget *
+panel_focused_field (GimpExtensionPanel *panel)
+{
+  GtkWidget *toplevel = gtk_widget_get_toplevel (panel->content_box);
+  GtkWidget *focus;
+
+  if (!GTK_IS_WINDOW (toplevel))
+    return NULL;
+  focus = gtk_window_get_focus (GTK_WINDOW (toplevel));
+  if (focus && g_object_get_data (G_OBJECT (focus), "extension-panel-field-key") &&
+      gtk_widget_is_ancestor (focus, panel->content_box))
+    return focus;
+  return NULL;
+}
+
 static GtkWidget *
 panel_create_content (GimpExtensionPanel *panel)
 {
@@ -608,6 +787,7 @@ panel_create_content (GimpExtensionPanel *panel)
   if (!strcmp (panel->presentation, "properties"))
     {
       GtkWidget *grid = gtk_grid_new ();
+      GtkWidget *buttons = NULL;
       gint row = 0;
 
       gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
@@ -618,6 +798,74 @@ panel_create_content (GimpExtensionPanel *panel)
         {
           gchar *separator;
           GtkWidget *label;
+
+          if (items[i][0] == '!' && (separator = strchr (items[i], '\t')))
+            {
+              GtkWidget *button;
+
+              *separator = '\0';
+              if (!buttons)  /* consecutive button rows share one wrapping row */
+                {
+                  buttons = gtk_flow_box_new ();
+                  gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (buttons),
+                                                   GTK_SELECTION_NONE);
+                  gtk_flow_box_set_column_spacing (GTK_FLOW_BOX (buttons), 6);
+                  gtk_flow_box_set_row_spacing (GTK_FLOW_BOX (buttons), 6);
+                  gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (buttons), 4);
+                  gtk_widget_set_margin_top (buttons, 4);
+                  gtk_grid_attach (GTK_GRID (grid), buttons, 0, row++, 2, 1);
+                }
+              button = gtk_button_new_with_label (separator + 1);
+              g_object_set_data_full (G_OBJECT (button), "extension-panel-procedure",
+                                      g_strdup (items[i] + 1), g_free);
+              g_signal_connect (button, "clicked",
+                                G_CALLBACK (panel_button_clicked), panel);
+              gtk_container_add (GTK_CONTAINER (buttons), button);
+              continue;
+            }
+          buttons = NULL;
+
+          if (items[i][0] == '@' && (separator = strchr (items[i], '\t')) &&
+              strchr (separator + 1, '\t'))
+            {
+              gchar *title = separator + 1;
+              gchar *value = strchr (title, '\t');
+              GtkWidget *name;
+              GtkWidget *frame = gtk_frame_new (NULL);
+              GtkWidget *view = gtk_text_view_new ();
+
+              *separator = '\0';
+              *value++ = '\0';
+              name = gtk_label_new (title);
+              gtk_label_set_xalign (GTK_LABEL (name), 0.0);
+              gtk_widget_set_valign (name, GTK_ALIGN_START);
+              gtk_widget_set_margin_top (name, 3);
+              gtk_style_context_add_class (gtk_widget_get_style_context (name),
+                                           GTK_STYLE_CLASS_DIM_LABEL);
+              gtk_label_set_mnemonic_widget (GTK_LABEL (name), view);
+              gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (view)),
+                                        value, -1);
+              gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (view), GTK_WRAP_WORD_CHAR);
+              gtk_text_view_set_accepts_tab (GTK_TEXT_VIEW (view), FALSE);
+              gtk_text_view_set_left_margin (GTK_TEXT_VIEW (view), 4);
+              gtk_text_view_set_right_margin (GTK_TEXT_VIEW (view), 4);
+              gtk_text_view_set_top_margin (GTK_TEXT_VIEW (view), 3);
+              gtk_text_view_set_bottom_margin (GTK_TEXT_VIEW (view), 3);
+              gtk_widget_set_hexpand (view, TRUE);
+              g_object_set_data_full (G_OBJECT (view), "extension-panel-field-key",
+                                      g_strdup (items[i] + 1), g_free);
+              g_object_set_data_full (G_OBJECT (view), "extension-panel-field-value",
+                                      g_strdup (value), g_free);
+              g_signal_connect (view, "key-press-event",
+                                G_CALLBACK (panel_field_key_press), panel);
+              g_signal_connect (view, "focus-out-event",
+                                G_CALLBACK (panel_field_focus_out), panel);
+              gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
+              gtk_container_add (GTK_CONTAINER (frame), view);
+              gtk_grid_attach (GTK_GRID (grid), name, 0, row, 1, 1);
+              gtk_grid_attach (GTK_GRID (grid), frame, 1, row++, 1, 1);
+              continue;
+            }
 
           if (g_str_has_prefix (items[i], "# "))
             {
@@ -1425,6 +1673,13 @@ gimp_extension_panel_update (Gimp        *gimp,
         }
     }
 
+  /* Properties rows have no images that could change behind the same text:
+   * an identical update need not rebuild (and so interrupt an edit) */
+  if (!strcmp (panel->presentation, "properties") &&
+      !strcmp (panel->content, content) &&
+      !strcmp (panel->selected_item, selected_item))
+    return TRUE;
+
   g_free (panel->content);
   g_free (panel->selected_item);
   panel->content = g_strdup (content);
@@ -1433,18 +1688,45 @@ gimp_extension_panel_update (Gimp        *gimp,
   if (dockable)
     {
       GtkWidget *old_content = panel->content_box;
+      GtkWidget *field = panel_focused_field (panel);
+      gchar *field_key = NULL;
+      gchar *field_text = NULL;
+      gboolean field_edited = FALSE;
+      gint field_cursor = 0;
       GtkAdjustment *hadjustment = gtk_scrolled_window_get_hadjustment (
         GTK_SCROLLED_WINDOW (old_content));
       GtkAdjustment *vadjustment = gtk_scrolled_window_get_vadjustment (
         GTK_SCROLLED_WINDOW (old_content));
       gdouble hvalue = gtk_adjustment_get_value (hadjustment);
       gdouble vvalue = gtk_adjustment_get_value (vadjustment);
-      GtkWidget *new_content = panel_create_scrolled_content (panel);
+      GtkWidget *new_content;
       GtkWidget *parent = gtk_widget_get_parent (old_content);
+
+      if (field)
+        {
+          GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (field));
+          GtkTextIter cursor;
+
+          field_key = g_strdup (g_object_get_data (G_OBJECT (field),
+                                                   "extension-panel-field-key"));
+          field_text = panel_field_text (field);
+          /* Uncommitted typing; committed text shows the owner's new value */
+          field_edited =
+            g_strcmp0 (field_text, g_object_get_data (G_OBJECT (field),
+                                                      "extension-panel-field-value")) &&
+            g_strcmp0 (field_text, g_object_get_data (G_OBJECT (field),
+                                                      "extension-panel-field-sent"));
+          gtk_text_buffer_get_iter_at_mark (buffer, &cursor,
+                                            gtk_text_buffer_get_insert (buffer));
+          field_cursor = gtk_text_iter_get_offset (&cursor);
+        }
+      new_content = panel_create_scrolled_content (panel);
 
       if (parent)
         {
+          panel_rebuilding = TRUE;
           gtk_container_remove (GTK_CONTAINER (parent), old_content);
+          panel_rebuilding = FALSE;
           gtk_box_pack_start (GTK_BOX (parent), new_content, TRUE, TRUE, 0);
           gtk_box_reorder_child (GTK_BOX (parent), new_content, 0);
           gtk_widget_show_all (new_content);
@@ -1455,7 +1737,22 @@ gimp_extension_panel_update (Gimp        *gimp,
           gtk_adjustment_set_value (
             gtk_scrolled_window_get_vadjustment (
               GTK_SCROLLED_WINDOW (new_content)), vvalue);
+          /* Keep the field being edited focused, with any uncommitted text */
+          field = field_key ? panel_find_field (new_content, field_key) : NULL;
+          if (field)
+            {
+              GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (field));
+              GtkTextIter cursor;
+
+              if (field_edited)
+                gtk_text_buffer_set_text (buffer, field_text, -1);
+              gtk_widget_grab_focus (field);
+              gtk_text_buffer_get_iter_at_offset (buffer, &cursor, field_cursor);
+              gtk_text_buffer_place_cursor (buffer, &cursor);
+            }
         }
+      g_free (field_key);
+      g_free (field_text);
     }
   return TRUE;
 }
