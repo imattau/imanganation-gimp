@@ -28,6 +28,7 @@
 #include "core/gimpcontext.h"
 #include "core/gimpviewable.h"
 #include "plug-in/gimpplugin.h"
+#include "plug-in/gimppluginprocedure.h"
 
 #include "pdb/gimppdb.h"
 #include "pdb/gimpprocedure.h"
@@ -62,6 +63,52 @@ static GimpDialogFactory *panel_factory;
 static gint next_panel_view_size = 10000;
 
 static void panel_register_entry (GimpExtensionPanel *panel);
+
+static gboolean
+panel_action_is_valid (Gimp        *gimp,
+                       const gchar *owner,
+                       const gchar *procedure_name,
+                       gboolean     takes_item,
+                       GError     **error)
+{
+  GimpProcedure *procedure;
+  GFile *file;
+  gchar *procedure_owner;
+  gboolean valid;
+
+  if (!procedure_name || !*procedure_name)
+    return TRUE;
+
+  procedure = gimp_pdb_lookup_procedure (gimp->pdb, procedure_name);
+  if (!procedure || !GIMP_IS_PLUG_IN_PROCEDURE (procedure))
+    goto invalid;
+
+  if (procedure->num_args != (takes_item ? 1 : 0) ||
+      (takes_item && !G_IS_PARAM_SPEC_STRING (procedure->args[0])))
+    goto invalid;
+
+  file = gimp_plug_in_procedure_get_file (
+    GIMP_PLUG_IN_PROCEDURE (procedure));
+  if (!file)
+    goto invalid;
+
+  procedure_owner = g_file_get_basename (file);
+#ifdef G_OS_WIN32
+  if (g_str_has_suffix (procedure_owner, ".exe"))
+    procedure_owner[strlen (procedure_owner) - 4] = '\0';
+#endif
+  valid = !strcmp (owner, procedure_owner);
+  g_free (procedure_owner);
+  if (valid)
+    return TRUE;
+
+invalid:
+  g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+               "Panel action procedure '%s' must belong to its plug-in and "
+               "accept %s", procedure_name,
+               takes_item ? "one string argument" : "no arguments");
+  return FALSE;
+}
 
 static gboolean
 panel_identifier_is_valid (const gchar *text)
@@ -805,6 +852,10 @@ gimp_extension_panel_register (Gimp        *gimp,
                            "Invalid extension panel identity or text");
       return FALSE;
     }
+
+  if (!panel_action_is_valid (gimp, owner, action_procedure, FALSE, error) ||
+      !panel_action_is_valid (gimp, owner, item_action_procedure, TRUE, error))
+    return FALSE;
 
   if (*selected_item)
     {
