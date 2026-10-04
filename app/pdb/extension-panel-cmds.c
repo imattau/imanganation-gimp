@@ -79,7 +79,7 @@ panel_procedure_new (const gchar    *name,
                      GimpMarshalFunc invoker,
                      const gchar    *help)
 {
-  GimpProcedure *procedure = gimp_procedure_new (invoker, TRUE);
+  GimpProcedure *procedure = gimp_procedure_new (invoker, FALSE);
 
   gimp_object_set_static_name (GIMP_OBJECT (procedure), name);
   gimp_procedure_set_static_help (procedure, help, help, NULL);
@@ -116,7 +116,7 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        "Properties use '# ' section headings and tab-separated name/value "
                                                        "rows. Content is limited to 1 MiB, "
                                                        "2048 rows, and 4096 bytes per row.",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("presentation", "presentation",
@@ -126,23 +126,23 @@ extension_panel_procs_init (GimpPDB *pdb)
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
                                                        "Stable row id highlighted by the host (or legacy label), or empty",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("action-label", "action label",
                                                        "Button label, or empty",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("action-procedure", "action procedure",
                                                        "Zero-argument procedure called by the button",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("item-action-procedure", "item action procedure",
                                                        "One-string procedure called with the activated item's stable row id "
                                                        "(or legacy label), or empty",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
   g_object_unref (procedure);
@@ -155,12 +155,12 @@ extension_panel_procs_init (GimpPDB *pdb)
                                gimp_param_spec_string ("content", "content",
                                                        "Host-rendered text using the registered presentation format; "
                                                        "limited to 1 MiB, 2048 rows, and 4096 bytes per row",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
                                                        "Stable row id highlighted by the host (or legacy label), or empty",
-                                                       FALSE, FALSE, TRUE, NULL,
+                                                       FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
   g_object_unref (procedure);

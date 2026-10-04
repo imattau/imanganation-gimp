@@ -14,6 +14,7 @@
 #include <gegl.h>
 #include <gtk/gtk.h>
 
+#include "libgimpbase/gimpbase.h"
 #include "libgimpbase/gimpbasetypes.h"
 #define __GIMP_BASE_H_INSIDE__
 #include "libgimpbase/gimpvaluearray.h"
@@ -28,6 +29,7 @@
 #include "core/gimpcontext.h"
 #include "core/gimpviewable.h"
 #include "plug-in/gimpplugin.h"
+#include "plug-in/gimppluginmanager.h"
 #include "plug-in/gimppluginprocedure.h"
 
 #include "pdb/gimppdb.h"
@@ -35,6 +37,9 @@
 
 #include "gimpextensionpanel.h"
 #include "gimpdialogfactory.h"
+#include "gimpdockable.h"
+#include "gimpdocked.h"
+#include "gimphelp-ids.h"
 #include "gimp-intl.h"
 #include "gimpwindowstrategy.h"
 
@@ -59,8 +64,27 @@ typedef struct
   GHashTable  *collapsed_tree_paths;
   gint         factory_view_size;
   GtkWidget   *content_box;
+  GtkWidget   *view;      /* weak: the panel's widget while a dock shows it */
+  GimpPlugIn  *plug_in;   /* weak: the running instance that registered it */
   GtkWidget   *action_button;
 } GimpExtensionPanel;
+
+/* GimpDockable requires its child to implement GimpDocked; the interface's
+ * methods are all optional, so the panel view needs no overrides. */
+typedef GtkBox      GimpExtensionPanelView;
+typedef GtkBoxClass GimpExtensionPanelViewClass;
+
+GType gimp_extension_panel_view_get_type (void) G_GNUC_CONST;
+
+static void panel_view_docked_iface_init (GimpDockedInterface *iface) {}
+
+G_DEFINE_TYPE_WITH_CODE (GimpExtensionPanelView, gimp_extension_panel_view,
+                         GTK_TYPE_BOX,
+                         G_IMPLEMENT_INTERFACE (GIMP_TYPE_DOCKED,
+                                                panel_view_docked_iface_init))
+
+static void gimp_extension_panel_view_class_init (GimpExtensionPanelViewClass *klass) {}
+static void gimp_extension_panel_view_init (GimpExtensionPanelView *view) {}
 
 static GHashTable *panels;
 static GimpDialogFactory *panel_factory;
@@ -765,13 +789,18 @@ panel_new (GimpDialogFactory *factory,
            gpointer          user_data)
 {
   GimpExtensionPanel *panel = user_data;
-  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  GtkWidget *box = g_object_new (gimp_extension_panel_view_get_type (),
+                                 "orientation", GTK_ORIENTATION_VERTICAL,
+                                 "spacing", 6,
+                                 NULL);
   GtkWidget *content = panel_create_scrolled_content (panel);
 
   gtk_container_set_border_width (GTK_CONTAINER (box), 6);
   gtk_box_pack_start (GTK_BOX (box), content, TRUE, TRUE, 0);
 
   panel->content_box = content;
+  panel->view = box;
+  g_object_add_weak_pointer (G_OBJECT (box), (gpointer *) &panel->view);
   if (panel->action_label && *panel->action_label)
     {
       GtkWidget *button = gtk_button_new_with_label (panel->action_label);
@@ -811,6 +840,12 @@ panel_new_generic (GimpDialogFactory *factory, GimpContext *context,
 static void
 panel_free (GimpExtensionPanel *panel)
 {
+  if (panel->plug_in)
+    g_object_remove_weak_pointer (G_OBJECT (panel->plug_in),
+                                  (gpointer *) &panel->plug_in);
+  if (panel->view)
+    g_object_remove_weak_pointer (G_OBJECT (panel->view),
+                                  (gpointer *) &panel->view);
   g_free (panel->owner);
   g_free (panel->identifier);
   g_free (panel->factory_identifier);
@@ -842,27 +877,158 @@ gimp_extension_panel_dialogs_init (GimpDialogFactory *factory)
   g_list_free (values);
 }
 
-void
-gimp_extension_panel_show_unrestored (Gimp *gimp)
+/* Docks this profile has shown at least once ("seen"), kept in
+ * <gimp_directory>/extension-panelsrc, one factory identifier per line. A dock
+ * is opened automatically only the first time it is seen; after that the saved
+ * session decides, so a dock the user closed stays closed. The record only
+ * counts while sessionrc exists: a fresh profile, or "Reset Saved Window
+ * Positions" (which deletes sessionrc), brings the default docks back. */
+static GHashTable *seen_panels;
+
+#define SEEN_PANELS_FILE "extension-panelsrc"
+
+static void
+seen_panels_load (void)
 {
+  GFile *session;
+  GFile *file;
+  gchar *text = NULL;
+
+  if (seen_panels)
+    return;
+
+  seen_panels = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  session = gimp_directory_file ("sessionrc", NULL);
+  file = gimp_directory_file (SEEN_PANELS_FILE, NULL);
+
+  if (g_file_query_exists (session, NULL) &&
+      g_file_load_contents (file, NULL, &text, NULL, NULL, NULL))
+    {
+      gchar **lines = g_strsplit (text, "\n", -1);
+      gint    i;
+
+      for (i = 0; lines[i]; i++)
+        {
+          gchar *line = g_strstrip (lines[i]);
+
+          if (*line && *line != '#')
+            g_hash_table_add (seen_panels, g_strdup (line));
+        }
+      g_strfreev (lines);
+      g_free (text);
+    }
+  g_object_unref (file);
+  g_object_unref (session);
+}
+
+static gboolean
+panel_was_seen (GimpExtensionPanel *panel)
+{
+  seen_panels_load ();
+  return g_hash_table_contains (seen_panels, panel->factory_identifier);
+}
+
+static void
+panel_mark_seen (GimpExtensionPanel *panel)
+{
+  GString *text;
+  GList   *keys;
+  GList   *iter;
+  GFile   *file;
+  GError  *error = NULL;
+
+  seen_panels_load ();
+  if (!g_hash_table_add (seen_panels, g_strdup (panel->factory_identifier)))
+    return;
+
+  text = g_string_new ("# Extension docks this profile has shown; a dock listed here\n"
+                       "# is not reopened automatically. Written by GIMP.\n");
+  keys = g_list_sort (g_hash_table_get_keys (seen_panels), (GCompareFunc) strcmp);
+  for (iter = keys; iter; iter = iter->next)
+    g_string_append_printf (text, "%s\n", (const gchar *) iter->data);
+  g_list_free (keys);
+
+  file = gimp_directory_file (SEEN_PANELS_FILE, NULL);
+  if (!g_file_replace_contents (file, text->str, text->len, NULL, FALSE,
+                                G_FILE_CREATE_NONE, NULL, NULL, &error))
+    {
+      g_warning ("Could not write %s: %s", gimp_file_get_utf8_name (file),
+                 error->message);
+      g_clear_error (&error);
+    }
+  g_object_unref (file);
+  g_string_free (text, TRUE);
+}
+
+/* The dockable currently showing this panel, or NULL. Dockables are not
+ * session-managed, so gimp_dialog_factory_find_widget() does not find them
+ * once a saved session has restored them. */
+static GtkWidget *
+panel_dockable (GimpExtensionPanel *panel)
+{
+  return panel->view ? gtk_widget_get_ancestor (panel->view, GIMP_TYPE_DOCKABLE) :
+                       NULL;
+}
+
+static gint
+panel_compare_registration (gconstpointer a,
+                            gconstpointer b)
+{
+  const GimpExtensionPanel *pa = a;
+  const GimpExtensionPanel *pb = b;
+
+  return pa->factory_view_size - pb->factory_view_size;
+}
+
+static gboolean
+panel_show_unrestored_idle (gpointer data)
+{
+  Gimp *gimp = data;
   GList *values = panels ? g_hash_table_get_values (panels) : NULL;
+  GimpExtensionPanel *first = NULL;
   GList *iter;
 
   if (!panel_factory)
     {
       g_list_free (values);
-      return;
+      return G_SOURCE_REMOVE;
     }
 
+  /* Hash order is arbitrary; show docks in the order their plug-in registered
+   * them (factory_view_size increases per registration), so its first dock is
+   * the first tab. */
+  values = g_list_sort (values, panel_compare_registration);
   for (iter = values; iter; iter = iter->next)
     {
       GimpExtensionPanel *panel = iter->data;
-      /* Show newly registered panels once, but respect a saved closed state. */
-      if (!gimp_dialog_factory_find_session_info (panel_factory,
-                                                  panel->factory_identifier))
-        gimp_extension_panel_show (gimp, panel->owner, panel->identifier, NULL);
+      /* Skip docks the saved session already restored, so their saved
+       * placement and current tab are kept, and docks the user closed. */
+      if (panel_dockable (panel))
+        {
+          panel_mark_seen (panel);
+          continue;
+        }
+      if (panel_was_seen (panel))
+        continue;
+      gimp_extension_panel_show (gimp, panel->owner, panel->identifier, NULL);
+      if (!first)
+        first = panel;
     }
+  /* Each newly added dock becomes the current tab; bring the first back. */
+  if (first)
+    gimp_extension_panel_show (gimp, first->owner, first->identifier, NULL);
   g_list_free (values);
+  return G_SOURCE_REMOVE;
+}
+
+void
+gimp_extension_panel_show_unrestored (Gimp *gimp)
+{
+  /* gimp_session_info_restore() rebuilds the docks of restored windows in a
+   * default-priority idle. Run after it, so docks the saved session restores
+   * are found (keeping their placement and current tab) rather than being
+   * created a second time. */
+  g_idle_add_full (G_PRIORITY_LOW, panel_show_unrestored_idle, gimp, NULL);
 }
 
 void
@@ -870,25 +1036,23 @@ gimp_extension_panel_plugin_closed (GimpPlugInManager *manager,
                                     GimpPlugIn        *plug_in,
                                     gpointer           user_data)
 {
-  gchar *owner;
   GList *keys;
   GList *iter;
 
   if (!panels)
     return;
 
-  owner = gimp_extension_panel_get_owner (plug_in);
-  if (!owner)
-    return;
+  /* Match the instance, not the owner name: every command of a Python
+   * plug-in runs as its own short-lived process with the same file name,
+   * and those closing must not take down the docks its persistent
+   * extension registered. */
   keys = g_hash_table_get_keys (panels);
   for (iter = keys; iter; iter = iter->next)
     {
       GimpExtensionPanel *panel = g_hash_table_lookup (panels, iter->data);
-      if (!strcmp (panel->owner, owner))
+      if (panel->plug_in == plug_in)
         {
-          GtkWidget *widget = panel_factory ?
-            gimp_dialog_factory_find_widget (panel_factory,
-                                             panel->factory_identifier) : NULL;
+          GtkWidget *widget = panel_dockable (panel);
           if (widget)
             gtk_widget_destroy (widget);
           if (panel_factory)
@@ -898,7 +1062,6 @@ gimp_extension_panel_plugin_closed (GimpPlugInManager *manager,
         }
     }
   g_list_free (keys);
-  g_free (owner);
 }
 
 gchar *
@@ -928,9 +1091,17 @@ panel_register_entry (GimpExtensionPanel *panel)
   gimp_dialog_factory_register_entry (panel_factory,
                                       panel->factory_identifier,
                                       panel->title, panel->title,
-                                      NULL, NULL, panel_new_generic, NULL,
-                                      panel->factory_view_size, TRUE, TRUE,
-                                      FALSE, TRUE, TRUE, FALSE, TRUE);
+                                      /* gimp_dockable_new() rejects NULL icon and help ids */
+                                      GIMP_ICON_PLUGIN, GIMP_HELP_MAIN,
+                                      panel_new_generic, NULL,
+                                      panel->factory_view_size,
+                                      TRUE  /* singleton */,
+                                      FALSE /* session_managed: dockables live in docks */,
+                                      FALSE /* remember_size */,
+                                      TRUE  /* remember_if_open */,
+                                      TRUE  /* hideable */,
+                                      FALSE /* image_window */,
+                                      TRUE  /* dockable */);
 }
 
 gboolean
@@ -1022,16 +1193,28 @@ gimp_extension_panel_register (Gimp        *gimp,
   panel->action_procedure = g_strdup (action_procedure);
   panel->item_action_procedure = g_strdup (item_action_procedure);
 
+  if (panel->plug_in != gimp->plug_in_manager->current_plug_in)
+    {
+      if (panel->plug_in)
+        g_object_remove_weak_pointer (G_OBJECT (panel->plug_in),
+                                      (gpointer *) &panel->plug_in);
+      panel->plug_in = gimp->plug_in_manager->current_plug_in;
+      if (panel->plug_in)
+        g_object_add_weak_pointer (G_OBJECT (panel->plug_in),
+                                   (gpointer *) &panel->plug_in);
+    }
+
   if (panel_factory)
     {
       panel_register_entry (panel);
 
       /* When registration happens after dialog-factory restoration (for example,
-       * a Python extension started from its menu), show only a genuinely new dock.
-       * Existing session info records both placement and the user's closed state. */
-      if (newly_registered &&
-          !gimp_dialog_factory_find_session_info (panel_factory,
-                                                  panel->factory_identifier))
+       * a Python extension started from its menu), show only a dock this profile
+       * has never shown; one the user closed stays closed.
+       * Extensions auto-started during gimp_restore() register before any image
+       * window exists; gimp_extension_panel_show_unrestored() shows those. */
+      if (newly_registered && gimp_is_restored (gimp) &&
+          !panel_dockable (panel) && !panel_was_seen (panel))
         {
           GError *show_error = NULL;
 
@@ -1054,6 +1237,7 @@ gimp_extension_panel_show (Gimp        *gimp,
                            GError     **error)
 {
   GimpExtensionPanel *panel = panel_lookup (owner, identifier);
+  GtkWidget *dockable;
 
   if (!panel || !panel_factory)
     {
@@ -1062,10 +1246,25 @@ gimp_extension_panel_show (Gimp        *gimp,
       return FALSE;
     }
 
+  dockable = panel_dockable (panel);
+  if (dockable)
+    {
+      /* Already docked: make it the current tab of its dockbook. */
+      GtkWidget *book = gtk_widget_get_parent (dockable);
+
+      if (GTK_IS_NOTEBOOK (book))
+        gtk_notebook_set_current_page (
+          GTK_NOTEBOOK (book),
+          gtk_notebook_page_num (GTK_NOTEBOOK (book), dockable));
+      return TRUE;
+    }
+
   panel_register_entry (panel);
   gimp_window_strategy_show_dockable_dialog (
     GIMP_WINDOW_STRATEGY (gimp_get_window_strategy (gimp)), gimp,
     panel_factory, gimp_get_monitor_at_pointer (), panel->factory_identifier);
+  if (panel_dockable (panel))
+    panel_mark_seen (panel);
   return TRUE;
 }
 
@@ -1111,8 +1310,7 @@ gimp_extension_panel_update (Gimp        *gimp,
   g_free (panel->selected_item);
   panel->content = g_strdup (content);
   panel->selected_item = g_strdup (selected_item);
-  dockable = panel_factory ? gimp_dialog_factory_find_widget (
-    panel_factory, panel->factory_identifier) : NULL;
+  dockable = panel_dockable (panel);
   if (dockable)
     {
       GtkWidget *old_content = panel->content_box;
@@ -1156,8 +1354,7 @@ gimp_extension_panel_unregister (Gimp        *gimp,
     return TRUE;
   if (panel_factory)
     {
-      GtkWidget *widget = gimp_dialog_factory_find_widget (
-        panel_factory, panel->factory_identifier);
+      GtkWidget *widget = panel_dockable (panel);
       if (widget)
         gtk_widget_destroy (widget);
       gimp_dialog_factory_unregister_entry (panel_factory,
