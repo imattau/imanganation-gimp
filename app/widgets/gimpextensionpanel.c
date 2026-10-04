@@ -508,6 +508,53 @@ panel_menu_deactivate (GtkMenuShell *menu)
   g_idle_add (panel_menu_destroy_idle, menu);
 }
 
+/* Pop up a row's "proc:Label|proc2:Label" menu; FALSE if it has no items. */
+static gboolean
+panel_popup_menu (GtkWidget          *attach,
+                  GdkEvent           *event,
+                  GimpExtensionPanel *panel,
+                  const gchar        *menu_spec,
+                  const gchar        *row_id)
+{
+  GtkWidget *menu;
+  gchar **entries;
+  gint i, n = 0;
+
+  if (!menu_spec || !*menu_spec)
+    return FALSE;
+  menu = gtk_menu_new ();
+  entries = g_strsplit (menu_spec, "|", -1);
+  for (i = 0; entries[i]; i++)
+    {
+      gchar *colon = strchr (entries[i], ':');
+      GtkWidget *item;
+
+      if (!colon || colon == entries[i] || !colon[1])
+        continue;
+      *colon = '\0';
+      item = gtk_menu_item_new_with_label (colon + 1);
+      g_object_set_data_full (G_OBJECT (item), "extension-panel-procedure",
+                              g_strdup (entries[i]), g_free);
+      g_object_set_data_full (G_OBJECT (item), "extension-panel-item-id",
+                              g_strdup (row_id ? row_id : ""), g_free);
+      g_signal_connect (item, "activate",
+                        G_CALLBACK (panel_menu_item_activate), panel);
+      gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+      n++;
+    }
+  g_strfreev (entries);
+  if (!n)
+    {
+      gtk_widget_destroy (menu);
+      return FALSE;
+    }
+  gtk_menu_attach_to_widget (GTK_MENU (menu), attach, NULL);
+  g_signal_connect (menu, "deactivate", G_CALLBACK (panel_menu_deactivate), NULL);
+  gtk_widget_show_all (menu);
+  gtk_menu_popup_at_pointer (GTK_MENU (menu), event);
+  return TRUE;
+}
+
 static gboolean
 panel_tree_button_press (GtkWidget          *tree,
                          GdkEventButton     *event,
@@ -518,7 +565,7 @@ panel_tree_button_press (GtkWidget          *tree,
   GtkTreeIter iter;
   gchar *row_id = NULL;
   gchar *menu_spec = NULL;
-  gboolean handled = FALSE;
+  gboolean handled;
 
   if (!gdk_event_triggers_context_menu ((GdkEvent *) event) ||
       !gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW (tree), event->x, event->y,
@@ -527,39 +574,71 @@ panel_tree_button_press (GtkWidget          *tree,
   gtk_tree_model_get_iter (model, &iter, path);
   gtk_tree_path_free (path);
   gtk_tree_model_get (model, &iter, 2, &row_id, 3, &menu_spec, -1);
-  if (menu_spec && *menu_spec)
-    {
-      GtkWidget *menu = gtk_menu_new ();
-      gchar **entries = g_strsplit (menu_spec, "|", -1);
-      gint i;
-
-      for (i = 0; entries[i]; i++)
-        {
-          gchar *colon = strchr (entries[i], ':');
-          GtkWidget *item;
-
-          if (!colon || colon == entries[i] || !colon[1])
-            continue;
-          *colon = '\0';
-          item = gtk_menu_item_new_with_label (colon + 1);
-          g_object_set_data_full (G_OBJECT (item), "extension-panel-procedure",
-                                  g_strdup (entries[i]), g_free);
-          g_object_set_data_full (G_OBJECT (item), "extension-panel-item-id",
-                                  g_strdup (row_id ? row_id : ""), g_free);
-          g_signal_connect (item, "activate",
-                            G_CALLBACK (panel_menu_item_activate), panel);
-          gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
-        }
-      g_strfreev (entries);
-      gtk_menu_attach_to_widget (GTK_MENU (menu), tree, NULL);
-      g_signal_connect (menu, "deactivate", G_CALLBACK (panel_menu_deactivate), NULL);
-      gtk_widget_show_all (menu);
-      gtk_menu_popup_at_pointer (GTK_MENU (menu), (GdkEvent *) event);
-      handled = TRUE;
-    }
+  handled = panel_popup_menu (tree, (GdkEvent *) event, panel, menu_spec, row_id);
   g_free (row_id);
   g_free (menu_spec);
   return handled;
+}
+
+/* Tiles: right-click menus as on tree rows, and drag to reorder when the content
+ * declares "!!reorder\tprocedure": dropping one tile on another runs that
+ * one-string procedure with "dragged id\ttarget id". */
+static const GtkTargetEntry panel_tile_targets[] = {
+  { (gchar *) "application/x-gimp-extension-panel-tile", GTK_TARGET_SAME_APP, 0 }
+};
+
+static gboolean
+panel_tile_button_press (GtkWidget          *tile,
+                         GdkEventButton     *event,
+                         GimpExtensionPanel *panel)
+{
+  if (!gdk_event_triggers_context_menu ((GdkEvent *) event))
+    return FALSE;
+  return panel_popup_menu (tile, (GdkEvent *) event, panel,
+                           g_object_get_data (G_OBJECT (tile), "extension-panel-menu"),
+                           g_object_get_data (G_OBJECT (tile), "extension-panel-item-id"));
+}
+
+static void
+panel_tile_drag_data_get (GtkWidget        *tile,
+                          GdkDragContext   *context,
+                          GtkSelectionData *data,
+                          guint             info,
+                          guint             time)
+{
+  const gchar *item_id = g_object_get_data (G_OBJECT (tile), "extension-panel-item-id");
+
+  gtk_selection_data_set (data, gtk_selection_data_get_target (data), 8,
+                          (const guchar *) item_id, strlen (item_id));
+}
+
+static void
+panel_tile_drag_data_received (GtkWidget          *tile,
+                               GdkDragContext     *context,
+                               gint                x,
+                               gint                y,
+                               GtkSelectionData   *data,
+                               guint               info,
+                               guint               time,
+                               GimpExtensionPanel *panel)
+{
+  const gchar *target = g_object_get_data (G_OBJECT (tile), "extension-panel-item-id");
+  gint length = gtk_selection_data_get_length (data);
+  gchar *dragged;
+
+  if (length <= 0 || length > EXTENSION_PANEL_MAX_ROW_BYTES)
+    return;
+  dragged = g_strndup ((const gchar *) gtk_selection_data_get_data (data), length);
+  if (strcmp (dragged, target) && g_utf8_validate (dragged, -1, NULL))
+    {
+      gchar *item = g_strdup_printf ("%s\t%s", dragged, target);
+
+      panel_defer_run (panel,
+                       g_object_get_data (G_OBJECT (tile), "extension-panel-reorder"),
+                       item);
+      g_free (item);
+    }
+  g_free (dragged);
 }
 
 static GtkWidget *
@@ -1011,6 +1090,7 @@ panel_create_content (GimpExtensionPanel *panel)
     {
       GtkWidget *flow = gtk_flow_box_new ();
       GtkFlowBoxChild *selected_child = NULL;
+      const gchar *reorder = NULL;
 
       gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (flow), GTK_SELECTION_SINGLE);
       gtk_flow_box_set_activate_on_single_click (GTK_FLOW_BOX (flow), TRUE);
@@ -1038,11 +1118,31 @@ panel_create_content (GimpExtensionPanel *panel)
       container = flow;
 
       for (i = 0; items[i]; i++)
+        if (g_str_has_prefix (items[i], "!!reorder\t"))
+          reorder = items[i] + strlen ("!!reorder\t");
+
+      for (i = 0; items[i]; i++)
         {
-          GtkWidget *frame = gtk_frame_new (NULL);
-          GtkWidget *tile = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
-          GtkWidget *thumbnail = gtk_image_new_from_icon_name (
+          GtkWidget *frame;
+          GtkWidget *outer;
+          GtkWidget *tile;
+          GtkWidget *thumbnail;
+          gchar *menu_spec = NULL;
+          gchar *menu_mark;
+
+          if (g_str_has_prefix (items[i], "!!"))
+            continue;  /* a directive, not a tile */
+          menu_mark = strstr (items[i], "\t!");
+          if (menu_mark)
+            {
+              menu_spec = g_strdup (menu_mark + 2);
+              *menu_mark = '\0';
+            }
+          frame = gtk_frame_new (NULL);
+          tile = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+          thumbnail = gtk_image_new_from_icon_name (
             "image-x-generic", GTK_ICON_SIZE_DIALOG);
+          {
           const gchar *text = items[i];
           const gchar *tab = strchr (text, '\t');
           gchar *item_id;
@@ -1075,6 +1175,30 @@ panel_create_content (GimpExtensionPanel *panel)
           gtk_widget_set_size_request (frame, 86, 112);
           gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
           gtk_label_set_xalign (GTK_LABEL (label), 0.5);
+          /* An event box: tiles take right-clicks and drags */
+          outer = gtk_event_box_new ();
+          gtk_container_add (GTK_CONTAINER (outer), frame);
+          g_object_set_data_full (G_OBJECT (outer), "extension-panel-menu",
+                                  menu_spec, g_free);
+          g_signal_connect (outer, "button-press-event",
+                            G_CALLBACK (panel_tile_button_press), panel);
+          if (reorder && *reorder)
+            {
+              g_object_set_data_full (G_OBJECT (outer), "extension-panel-reorder",
+                                      g_strdup (reorder), g_free);
+              gtk_drag_source_set (outer, GDK_BUTTON1_MASK, panel_tile_targets,
+                                   G_N_ELEMENTS (panel_tile_targets), GDK_ACTION_MOVE);
+              gtk_drag_dest_set (outer, GTK_DEST_DEFAULT_ALL, panel_tile_targets,
+                                 G_N_ELEMENTS (panel_tile_targets), GDK_ACTION_MOVE);
+              if (pixbuf)
+                gtk_drag_source_set_icon_pixbuf (outer, pixbuf);
+              else
+                gtk_drag_source_set_icon_name (outer, "image-x-generic");
+              g_signal_connect (outer, "drag-data-get",
+                                G_CALLBACK (panel_tile_drag_data_get), NULL);
+              g_signal_connect (outer, "drag-data-received",
+                                G_CALLBACK (panel_tile_drag_data_received), panel);
+            }
           if (pixbuf)
             {
               gtk_image_set_from_pixbuf (GTK_IMAGE (thumbnail), pixbuf);
@@ -1084,12 +1208,13 @@ panel_create_content (GimpExtensionPanel *panel)
           gtk_box_pack_start (GTK_BOX (tile), thumbnail, TRUE, TRUE, 0);
           gtk_box_pack_end (GTK_BOX (tile), label, FALSE, FALSE, 0);
           gtk_container_add (GTK_CONTAINER (frame), tile);
-          g_object_set_data_full (G_OBJECT (frame), "extension-panel-item-id",
+          g_object_set_data_full (G_OBJECT (outer), "extension-panel-item-id",
                                   item_id, g_free);
-          g_object_set_data (G_OBJECT (frame), "extension-panel-item-label", label);
-          gtk_container_add (GTK_CONTAINER (flow), frame);
+          g_object_set_data (G_OBJECT (outer), "extension-panel-item-label", label);
+          gtk_container_add (GTK_CONTAINER (flow), outer);
           if (!strcmp (item_id, panel->selected_item))
-            selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (frame));
+            selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (outer));
+          }
         }
       if (selected_child)
         gtk_flow_box_select_child (GTK_FLOW_BOX (flow), selected_child);
