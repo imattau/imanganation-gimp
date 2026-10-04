@@ -110,8 +110,10 @@ extension_panel_procs_init (GimpPDB *pdb)
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("content", "content",
                                                        "Host-rendered text. Tree rows use leading tabs for depth and '# ' "
-                                                       "for non-activating headings. Properties use '# ' section headings "
-                                                       "and tab-separated name/value rows. Content is limited to 1 MiB, "
+                                                       "for non-activating headings. Activatable list, tile and tree rows "
+                                                       "may use id<TAB>label; legacy rows use their label as the id. "
+                                                       "Properties use '# ' section headings and tab-separated name/value "
+                                                       "rows. Content is limited to 1 MiB, "
                                                        "2048 rows, and 4096 bytes per row.",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
@@ -122,8 +124,7 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
-                                                       "Rendered item label highlighted by the host, or empty; tree "
-                                                       "indentation and heading markers are excluded",
+                                                       "Stable row id highlighted by the host (or legacy label), or empty",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
@@ -138,8 +139,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("item-action-procedure", "item action procedure",
-                                                       "One-string procedure called with the activated item's "
-                                                       "rendered label, or empty",
+                                                       "One-string procedure called with the activated item's stable row id "
+                                                       "(or legacy label), or empty",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
@@ -157,7 +158,7 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
-                                                       "Rendered item label highlighted by the host, or empty",
+                                                       "Stable row id highlighted by the host (or legacy label), or empty",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);

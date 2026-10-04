@@ -225,11 +225,13 @@ panel_action (GtkButton *button,
 
 static void
 panel_item_activated (GimpExtensionPanel *panel,
-                      GtkWidget         *label)
+                      GtkWidget         *row)
 {
-  if (GTK_IS_LABEL (label))
+  const gchar *item_id = g_object_get_data (G_OBJECT (row),
+                                             "extension-panel-item-id");
+  if (item_id)
     panel_run_procedure (panel, panel->item_action_procedure,
-                         gtk_label_get_text (GTK_LABEL (label)));
+                         item_id);
 }
 
 static void
@@ -237,7 +239,7 @@ panel_list_row_activated (GtkListBox          *list,
                           GtkListBoxRow       *row,
                           GimpExtensionPanel  *panel)
 {
-  panel_item_activated (panel, gtk_bin_get_child (GTK_BIN (row)));
+  panel_item_activated (panel, GTK_WIDGET (row));
 }
 
 static void
@@ -251,13 +253,13 @@ panel_tree_row_activated (GtkTreeView         *tree_view,
 
   if (gtk_tree_model_get_iter (model, &iter, path))
     {
-      gchar    *text = NULL;
+      gchar    *item_id = NULL;
       gboolean  heading;
 
-      gtk_tree_model_get (model, &iter, 0, &text, 1, &heading, -1);
+      gtk_tree_model_get (model, &iter, 2, &item_id, 1, &heading, -1);
       if (!heading)
-        panel_run_procedure (panel, panel->item_action_procedure, text);
-      g_free (text);
+        panel_run_procedure (panel, panel->item_action_procedure, item_id);
+      g_free (item_id);
     }
 }
 
@@ -396,6 +398,7 @@ panel_content_has_item (const gchar *content,
   for (i = 0; items[i]; i++)
     {
       const gchar *label = items[i];
+      const gchar *tab;
 
       if (!strcmp (presentation, "tree"))
         {
@@ -405,7 +408,11 @@ panel_content_has_item (const gchar *content,
             continue;
         }
 
-      if (!strcmp (label, item))
+      tab = strchr (label, '\t');
+
+      if (tab ? (tab - label == strlen (item) &&
+                 !strncmp (label, item, tab - label)) :
+                !strcmp (label, item))
         {
           found = TRUE;
           break;
@@ -422,17 +429,16 @@ panel_tile_activated (GtkFlowBox         *flow,
                       GimpExtensionPanel *panel)
 {
   GtkWidget *frame = gtk_bin_get_child (GTK_BIN (child));
-  GtkWidget *label = frame ? g_object_get_data (G_OBJECT (frame),
-                                                 "extension-panel-item-label") : NULL;
-
-  panel_item_activated (panel, label);
+  if (frame)
+    panel_item_activated (panel, frame);
 }
 
 static GtkWidget *
 panel_create_tree_content (GimpExtensionPanel *panel,
                            gchar             **items)
 {
-  GtkTreeStore *store = gtk_tree_store_new (2, G_TYPE_STRING, G_TYPE_BOOLEAN);
+  GtkTreeStore *store = gtk_tree_store_new (3, G_TYPE_STRING, G_TYPE_BOOLEAN,
+                                            G_TYPE_STRING);
   GtkWidget *tree = gtk_tree_view_new_with_model (GTK_TREE_MODEL (store));
   GtkCellRenderer *renderer = gtk_cell_renderer_text_new ();
   GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes (
@@ -455,6 +461,7 @@ panel_create_tree_content (GimpExtensionPanel *panel,
       const gchar *text = items[i];
       gint depth = 0;
       gboolean heading;
+      gchar *item_id = NULL;
       GtkTreeIter iter;
       GtkTreeIter *parent;
       gint level;
@@ -472,12 +479,26 @@ panel_create_tree_content (GimpExtensionPanel *panel,
       if (heading)
         text += 2;
 
+      if (!heading)
+        {
+          const gchar *tab = strchr (text, '\t');
+          if (tab)
+            {
+              item_id = g_strndup (text, tab - text);
+              text = tab + 1;
+            }
+          else
+            item_id = g_strdup (text);
+        }
+
       parent = depth > 0 ? &parents[depth - 1] : NULL;
       gtk_tree_store_append (store, &iter, parent);
       gtk_tree_store_set (store, &iter,
                           0, text,
                           1, heading,
+                          2, item_id,
                           -1);
+      g_free (item_id);
 
       for (level = depth + 1; level < G_N_ELEMENTS (parent_valid); level++)
         parent_valid[level] = FALSE;
@@ -485,8 +506,13 @@ panel_create_tree_content (GimpExtensionPanel *panel,
       if (heading)
         parents[depth] = iter;
 
-      if (!heading && !strcmp (text, panel->selected_item))
-        selected_path = gtk_tree_model_get_path (GTK_TREE_MODEL (store), &iter);
+      {
+        gchar *row_id = NULL;
+        gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, 2, &row_id, -1);
+        if (!heading && row_id && !strcmp (row_id, panel->selected_item))
+          selected_path = gtk_tree_model_get_path (GTK_TREE_MODEL (store), &iter);
+        g_free (row_id);
+      }
     }
 
   gtk_tree_view_expand_all (GTK_TREE_VIEW (tree));
@@ -605,16 +631,29 @@ panel_create_content (GimpExtensionPanel *panel)
           GtkWidget *tile = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
           GtkWidget *thumbnail = gtk_image_new_from_icon_name (
             "image-x-generic", GTK_ICON_SIZE_DIALOG);
-          GtkWidget *label = gtk_label_new (items[i]);
+          const gchar *text = items[i];
+          const gchar *tab = strchr (text, '\t');
+          gchar *item_id;
+          GtkWidget *label;
+          if (tab)
+            {
+              item_id = g_strndup (text, tab - text);
+              text = tab + 1;
+            }
+          else
+            item_id = g_strdup (text);
+          label = gtk_label_new (text);
           gtk_widget_set_size_request (frame, 86, 112);
           gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
           gtk_label_set_xalign (GTK_LABEL (label), 0.5);
           gtk_box_pack_start (GTK_BOX (tile), thumbnail, TRUE, TRUE, 0);
           gtk_box_pack_end (GTK_BOX (tile), label, FALSE, FALSE, 0);
           gtk_container_add (GTK_CONTAINER (frame), tile);
+          g_object_set_data_full (G_OBJECT (frame), "extension-panel-item-id",
+                                  item_id, g_free);
           g_object_set_data (G_OBJECT (frame), "extension-panel-item-label", label);
           gtk_container_add (GTK_CONTAINER (flow), frame);
-          if (!strcmp (items[i], panel->selected_item))
+          if (!strcmp (item_id, panel->selected_item))
             selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (frame));
         }
       if (selected_child)
@@ -635,8 +674,17 @@ panel_create_content (GimpExtensionPanel *panel)
         {
           GtkWidget *row = gtk_list_box_row_new ();
           const gchar *text = items[i];
+          const gchar *tab = strchr (text, '\t');
+          gchar *item_id;
           GtkWidget *label;
 
+          if (tab)
+            {
+              item_id = g_strndup (text, tab - text);
+              text = tab + 1;
+            }
+          else
+            item_id = g_strdup (text);
           label = gtk_label_new (text);
           gtk_label_set_xalign (GTK_LABEL (label), 0.0);
           gtk_widget_set_margin_start (label, 8);
@@ -644,8 +692,10 @@ panel_create_content (GimpExtensionPanel *panel)
           gtk_widget_set_margin_top (label, 5);
           gtk_widget_set_margin_bottom (label, 5);
           gtk_container_add (GTK_CONTAINER (row), label);
+          g_object_set_data_full (G_OBJECT (row), "extension-panel-item-id",
+                                  item_id, g_free);
           gtk_container_add (GTK_CONTAINER (list), row);
-          if (!strcmp (text, panel->selected_item))
+          if (!strcmp (item_id, panel->selected_item))
             selected_row = GTK_LIST_BOX_ROW (row);
         }
       if (selected_row)
