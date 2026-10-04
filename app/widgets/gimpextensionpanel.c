@@ -383,7 +383,9 @@ panel_create_content (GimpExtensionPanel *panel)
   else if (!strcmp (panel->presentation, "tiles"))
     {
       GtkWidget *flow = gtk_flow_box_new ();
-      gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (flow), GTK_SELECTION_NONE);
+      GtkFlowBoxChild *selected_child = NULL;
+
+      gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (flow), GTK_SELECTION_SINGLE);
       gtk_flow_box_set_activate_on_single_click (GTK_FLOW_BOX (flow), TRUE);
       g_signal_connect (flow, "child-activated",
                         G_CALLBACK (panel_tile_activated), panel);
@@ -398,19 +400,21 @@ panel_create_content (GimpExtensionPanel *panel)
           GtkWidget *frame = gtk_frame_new (NULL);
           GtkWidget *tile = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
           GtkWidget *thumbnail = gtk_image_new_from_icon_name (
-            "image-x-generic", GTK_ICON_SIZE_DND);
+            "image-x-generic", GTK_ICON_SIZE_DIALOG);
           GtkWidget *label = gtk_label_new (items[i]);
-          gtk_widget_set_size_request (frame, 84, 92);
+          gtk_widget_set_size_request (frame, 86, 112);
           gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
           gtk_label_set_xalign (GTK_LABEL (label), 0.5);
           gtk_box_pack_start (GTK_BOX (tile), thumbnail, TRUE, TRUE, 0);
           gtk_box_pack_end (GTK_BOX (tile), label, FALSE, FALSE, 0);
           gtk_container_add (GTK_CONTAINER (frame), tile);
           g_object_set_data (G_OBJECT (frame), "extension-panel-item-label", label);
-          if (!strcmp (items[i], panel->selected_item))
-            gtk_widget_set_state_flags (frame, GTK_STATE_FLAG_SELECTED, FALSE);
           gtk_container_add (GTK_CONTAINER (flow), frame);
+          if (!strcmp (items[i], panel->selected_item))
+            selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (frame));
         }
+      if (selected_child)
+        gtk_flow_box_select_child (GTK_FLOW_BOX (flow), selected_child);
     }
   else
     {
