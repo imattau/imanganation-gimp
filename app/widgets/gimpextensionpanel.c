@@ -39,6 +39,10 @@
 #include "gimpwindowstrategy.h"
 
 
+#define EXTENSION_PANEL_MAX_CONTENT_BYTES (1024 * 1024)
+#define EXTENSION_PANEL_MAX_CONTENT_ROWS  2048
+#define EXTENSION_PANEL_MAX_ROW_BYTES     4096
+
 typedef struct
 {
   Gimp        *gimp;
@@ -121,6 +125,29 @@ panel_identifier_is_valid (const gchar *text)
     if (!g_ascii_isalnum (*p) && *p != '-' && *p != '_')
       return FALSE;
   return TRUE;
+}
+
+static gboolean
+panel_content_is_valid (const gchar *content)
+{
+  const gchar *row_start = content;
+  const gchar *p;
+  gint rows = 1;
+
+  if (!content || strlen (content) > EXTENSION_PANEL_MAX_CONTENT_BYTES ||
+      !g_utf8_validate (content, -1, NULL))
+    return FALSE;
+
+  for (p = content; *p; p++)
+    if (*p == '\n')
+      {
+        if (p - row_start > EXTENSION_PANEL_MAX_ROW_BYTES ||
+            ++rows > EXTENSION_PANEL_MAX_CONTENT_ROWS)
+          return FALSE;
+        row_start = p + 1;
+      }
+
+  return p - row_start <= EXTENSION_PANEL_MAX_ROW_BYTES;
 }
 
 static gchar *
@@ -841,11 +868,16 @@ gimp_extension_panel_register (Gimp        *gimp,
       !title || !content || !presentation || !selected_item ||
       !action_label || !action_procedure ||
       !item_action_procedure ||
+      strlen (title) > 256 ||
+      strlen (action_label) > 128 ||
+      strlen (action_procedure) > 256 ||
+      strlen (item_action_procedure) > 256 ||
+      strlen (selected_item) > EXTENSION_PANEL_MAX_ROW_BYTES ||
       (strcmp (presentation, "list") && strcmp (presentation, "tree") &&
        strcmp (presentation, "tiles") &&
        strcmp (presentation, "properties")) ||
       !g_utf8_validate (title, -1, NULL) ||
-      !g_utf8_validate (content, -1, NULL) ||
+      !panel_content_is_valid (content) ||
       !g_utf8_validate (selected_item, -1, NULL))
     {
       g_set_error_literal (error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
@@ -948,7 +980,8 @@ gimp_extension_panel_update (Gimp        *gimp,
       return FALSE;
     }
 
-  if (!content || !selected_item || !g_utf8_validate (content, -1, NULL) ||
+  if (!panel_content_is_valid (content) || !selected_item ||
+      strlen (selected_item) > EXTENSION_PANEL_MAX_ROW_BYTES ||
       !g_utf8_validate (selected_item, -1, NULL))
     {
       g_set_error_literal (error, G_FILE_ERROR, G_FILE_ERROR_INVAL,

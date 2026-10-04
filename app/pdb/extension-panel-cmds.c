@@ -111,7 +111,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                gimp_param_spec_string ("content", "content",
                                                        "Host-rendered text. Tree rows use leading tabs for depth and '# ' "
                                                        "for non-activating headings. Properties use '# ' section headings "
-                                                       "and tab-separated name/value rows.",
+                                                       "and tab-separated name/value rows. Content is limited to 1 MiB, "
+                                                       "2048 rows, and 4096 bytes per row.",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
@@ -150,7 +151,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                    "The content uses the format selected when the dock was registered.");
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("content", "content",
-                                                       "Host-rendered text using the registered presentation format",
+                                                       "Host-rendered text using the registered presentation format; "
+                                                       "limited to 1 MiB, 2048 rows, and 4096 bytes per row",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
