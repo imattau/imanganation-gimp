@@ -100,24 +100,29 @@ extension_panel_procs_init (GimpPDB *pdb)
 
   procedure = panel_procedure_new ("gimp-extension-panel-register",
                                    panel_register_invoker,
-                                   "Register or update an extension-owned dock.");
+                                   "Register an extension-owned dock rendered by GIMP. "
+                                   "The plug-in supplies text content and procedure names; "
+                                   "GTK widgets remain inside the host process.");
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("title", "title", "Panel title",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("content", "content",
-                                                       "Newline-separated host-rendered items",
+                                                       "Host-rendered text. Tree rows use leading tabs for depth and '# ' "
+                                                       "for non-activating headings. Properties use '# ' section headings "
+                                                       "and tab-separated name/value rows.",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("presentation", "presentation",
-                                                       "Generic host layout: list, tree, tiles, or properties",
+                                                       "Host layout: list, tree, tiles, or properties",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
-                                                       "Item label highlighted by the host, or empty",
+                                                       "Rendered item label highlighted by the host, or empty; tree "
+                                                       "indentation and heading markers are excluded",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
@@ -132,7 +137,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("item-action-procedure", "item action procedure",
-                                                       "Procedure called with the activated item text, or empty",
+                                                       "One-string procedure called with the activated item's "
+                                                       "rendered label, or empty",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
@@ -140,15 +146,16 @@ extension_panel_procs_init (GimpPDB *pdb)
 
   procedure = panel_procedure_new ("gimp-extension-panel-update",
                                    panel_update_invoker,
-                                   "Update items and selection in an extension-owned dock.");
+                                   "Update text content and selection in an extension-owned dock. "
+                                   "The content uses the format selected when the dock was registered.");
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("content", "content",
-                                                       "Newline-separated host-rendered items",
+                                                       "Host-rendered text using the registered presentation format",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("selected-item", "selected item",
-                                                       "Item label highlighted by the host, or empty",
+                                                       "Rendered item label highlighted by the host, or empty",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
