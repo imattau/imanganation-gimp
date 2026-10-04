@@ -406,6 +406,9 @@ extension_panels_run (GimpProcedure *procedure,
   const gchar *actions[] = {
     ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
   };
+  gboolean project_registered;
+  gboolean inspector_registered;
+  gboolean filmstrip_registered;
   gchar *project = project_content_new ();
   gchar *inspector = inspector_content_new (current_page);
   gchar *filmstrip = filmstrip_content_new ();
@@ -416,18 +419,34 @@ extension_panels_run (GimpProcedure *procedure,
   install_select_action (plug_in, "project");
   install_select_action (plug_in, "filmstrip");
 
-  call_panel_proc ("gimp-extension-panel-register", "project", project,
-                   "tree", "●  Page 16", "Project", "Add Page", actions[0],
-                   SELECT_PREFIX "project");
-  call_panel_proc ("gimp-extension-panel-register", "inspector", inspector,
-                   "properties", "", "Inspector", "Refresh", actions[1], NULL);
-  call_panel_proc ("gimp-extension-panel-register", "filmstrip", filmstrip,
-                   "tiles", "16  ●", "Page Filmstrip", "Next page", actions[2],
-                   SELECT_PREFIX "filmstrip");
+  project_registered = call_panel_proc (
+    "gimp-extension-panel-register", "project", project,
+    "tree", "●  Page 16", "Project", "Add Page", actions[0],
+    SELECT_PREFIX "project");
+  inspector_registered = call_panel_proc (
+    "gimp-extension-panel-register", "inspector", inspector,
+    "properties", "", "Inspector", "Refresh", actions[1], NULL);
+  filmstrip_registered = call_panel_proc (
+    "gimp-extension-panel-register", "filmstrip", filmstrip,
+    "tiles", "16  ●", "Page Filmstrip", "Next page", actions[2],
+    SELECT_PREFIX "filmstrip");
 
   g_free (project);
   g_free (inspector);
   g_free (filmstrip);
+
+  if (!project_registered || !inspector_registered || !filmstrip_registered)
+    {
+      call_panel_proc ("gimp-extension-panel-unregister", "project",
+                       NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+      call_panel_proc ("gimp-extension-panel-unregister", "inspector",
+                       NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+      call_panel_proc ("gimp-extension-panel-unregister", "filmstrip",
+                       NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+      g_main_loop_unref (loop);
+      return gimp_procedure_new_return_values (
+        procedure, GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
 
   gimp_procedure_persistent_ready (procedure);
   gimp_plug_in_persistent_enable (plug_in);
