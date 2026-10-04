@@ -1050,6 +1050,15 @@ panel_button_clicked (GtkButton          *button,
                    NULL);
 }
 
+static void
+panel_row_button_clicked (GtkButton          *button,
+                          GimpExtensionPanel *panel)
+{
+  panel_defer_run (panel,
+                   g_object_get_data (G_OBJECT (button), "extension-panel-procedure"),
+                   g_object_get_data (G_OBJECT (button), "extension-panel-item-id"));
+}
+
 static GtkWidget *
 panel_find_field (GtkWidget   *widget,
                   const gchar *key)
@@ -1085,6 +1094,37 @@ panel_focused_field (GimpExtensionPanel *panel)
       gtk_widget_is_ancestor (focus, panel->content_box))
     return focus;
   return NULL;
+}
+
+static GtkWidget *
+panel_new_tile_flow (GimpExtensionPanel *panel)
+{
+  GtkWidget *flow = gtk_flow_box_new ();
+
+  gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (flow), GTK_SELECTION_SINGLE);
+  gtk_flow_box_set_activate_on_single_click (GTK_FLOW_BOX (flow), TRUE);
+  g_signal_connect (flow, "child-activated",
+                    G_CALLBACK (panel_tile_activated), panel);
+  if (!strcmp (panel->presentation, "strip"))
+    {
+      /* One horizontal row (e.g. a bottom page strip): vertical "lines"
+       * of a single tile each, scrolled sideways */
+      gtk_orientable_set_orientation (GTK_ORIENTABLE (flow),
+                                      GTK_ORIENTATION_VERTICAL);
+      gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 1);
+      gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 1);
+      /* Tiles keep their own width instead of stretching across the strip */
+      gtk_widget_set_halign (flow, GTK_ALIGN_START);
+      gtk_widget_set_valign (flow, GTK_ALIGN_START);
+    }
+  else
+    {
+      gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 6);
+      gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 2);
+    }
+  gtk_flow_box_set_row_spacing (GTK_FLOW_BOX (flow), 6);
+  gtk_flow_box_set_column_spacing (GTK_FLOW_BOX (flow), 6);
+  return flow;
 }
 
 static GtkWidget *
@@ -1194,7 +1234,32 @@ panel_create_content (GimpExtensionPanel *panel)
             {
               GtkWidget *name = gtk_label_new (NULL);
               GtkWidget *value = gtk_label_new (NULL);
+              gchar *action = strstr (separator + 1, "\t!");
+              GtkWidget *row_button = NULL;
 
+              if (action)  /* "\t!procedure:item:Label": a button for this row */
+                {
+                  gchar *spec = action + 2;
+                  gchar *first = strchr (spec, ':');
+                  gchar *last = strrchr (spec, ':');
+
+                  *action = '\0';
+                  if (first && last > first && last[1])
+                    {
+                      *first = '\0';
+                      *last = '\0';
+                      row_button = gtk_button_new_with_label (last + 1);
+                      gtk_widget_set_valign (row_button, GTK_ALIGN_START);
+                      g_object_set_data_full (G_OBJECT (row_button),
+                                              "extension-panel-procedure",
+                                              g_strdup (spec), g_free);
+                      g_object_set_data_full (G_OBJECT (row_button),
+                                              "extension-panel-item-id",
+                                              g_strdup (first + 1), g_free);
+                      g_signal_connect (row_button, "clicked",
+                                        G_CALLBACK (panel_row_button_clicked), panel);
+                    }
+                }
               *separator = '\0';
               gtk_label_set_text (GTK_LABEL (name), items[i]);
               gtk_label_set_text (GTK_LABEL (value), separator + 1);
@@ -1204,7 +1269,18 @@ panel_create_content (GimpExtensionPanel *panel)
               gtk_style_context_add_class (gtk_widget_get_style_context (name),
                                            GTK_STYLE_CLASS_DIM_LABEL);
               gtk_grid_attach (GTK_GRID (grid), name, 0, row, 1, 1);
-              gtk_grid_attach (GTK_GRID (grid), value, 1, row++, 1, 1);
+              if (row_button)  /* text wraps beside the button, within the dock */
+                {
+                  GtkWidget *cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+
+                  gtk_widget_set_hexpand (value, TRUE);
+                  gtk_box_pack_start (GTK_BOX (cell), value, TRUE, TRUE, 0);
+                  gtk_box_pack_end (GTK_BOX (cell), row_button, FALSE, FALSE, 0);
+                  gtk_grid_attach (GTK_GRID (grid), cell, 1, row, 1, 1);
+                }
+              else
+                gtk_grid_attach (GTK_GRID (grid), value, 1, row, 1, 1);
+              row++;
             }
           else
             {
@@ -1223,34 +1299,17 @@ panel_create_content (GimpExtensionPanel *panel)
   else if (!strcmp (panel->presentation, "tiles") ||
            !strcmp (panel->presentation, "strip"))
     {
-      GtkWidget *flow = gtk_flow_box_new ();
+      gboolean strip = !strcmp (panel->presentation, "strip");
+      GtkWidget *flow = NULL;
       GtkFlowBoxChild *selected_child = NULL;
       const gchar *reorder = NULL;
 
-      gtk_flow_box_set_selection_mode (GTK_FLOW_BOX (flow), GTK_SELECTION_SINGLE);
-      gtk_flow_box_set_activate_on_single_click (GTK_FLOW_BOX (flow), TRUE);
-      g_signal_connect (flow, "child-activated",
-                        G_CALLBACK (panel_tile_activated), panel);
-      if (!strcmp (panel->presentation, "strip"))
-        {
-          /* One horizontal row (e.g. a bottom page strip): vertical "lines"
-           * of a single tile each, scrolled sideways */
-          gtk_orientable_set_orientation (GTK_ORIENTABLE (flow),
-                                          GTK_ORIENTATION_VERTICAL);
-          gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 1);
-          gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 1);
-          /* Tiles keep their own width instead of stretching across the strip */
-          gtk_widget_set_halign (flow, GTK_ALIGN_START);
-          gtk_widget_set_valign (flow, GTK_ALIGN_START);
-        }
+      /* Tiles may have "# Section" headings: each section is its own flow box
+       * under its label. A strip is one row. */
+      if (strip)
+        container = flow = panel_new_tile_flow (panel);
       else
-        {
-          gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 6);
-          gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 2);
-        }
-      gtk_flow_box_set_row_spacing (GTK_FLOW_BOX (flow), 6);
-      gtk_flow_box_set_column_spacing (GTK_FLOW_BOX (flow), 6);
-      container = flow;
+        container = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
 
       for (i = 0; items[i]; i++)
         if (g_str_has_prefix (items[i], "!!reorder\t"))
@@ -1267,6 +1326,23 @@ panel_create_content (GimpExtensionPanel *panel)
 
           if (g_str_has_prefix (items[i], "!!"))
             continue;  /* a directive, not a tile */
+          if (!strip && g_str_has_prefix (items[i], "# "))
+            {
+              GtkWidget *heading = gtk_label_new (items[i] + 2);
+
+              gtk_label_set_xalign (GTK_LABEL (heading), 0.0);
+              gtk_style_context_add_class (gtk_widget_get_style_context (heading),
+                                           "heading");
+              gtk_widget_set_margin_top (heading, flow ? 8 : 2);
+              gtk_box_pack_start (GTK_BOX (container), heading, FALSE, FALSE, 0);
+              flow = NULL;  /* the next tile starts this section's flow box */
+              continue;
+            }
+          if (!flow)
+            {
+              flow = panel_new_tile_flow (panel);
+              gtk_box_pack_start (GTK_BOX (container), flow, FALSE, FALSE, 0);
+            }
           menu_mark = strstr (items[i], "\t!");
           if (menu_mark)
             {
@@ -1361,7 +1437,9 @@ panel_create_content (GimpExtensionPanel *panel)
           }
         }
       if (selected_child)
-        gtk_flow_box_select_child (GTK_FLOW_BOX (flow), selected_child);
+        gtk_flow_box_select_child (
+          GTK_FLOW_BOX (gtk_widget_get_parent (GTK_WIDGET (selected_child))),
+          selected_child);
     }
   else
     {

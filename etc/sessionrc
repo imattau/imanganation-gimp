@@ -46,6 +46,10 @@
             (dockable "extension-panel-imanganation.py::script"
                 (tab-style automatic)
                 (aux-info
+                    (show-button-bar "true")))
+            (dockable "extension-panel-imanganation.py::bubbles"
+                (tab-style automatic)
+                (aux-info
                     (show-button-bar "true"))))
         (book
             (position 520)
