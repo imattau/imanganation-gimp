@@ -128,6 +128,19 @@ panel_identifier_is_valid (const gchar *text)
 }
 
 static gboolean
+panel_owner_is_valid (const gchar *text)
+{
+  const guchar *p;
+
+  if (!text || !*text)
+    return FALSE;
+  for (p = (const guchar *) text; *p; p++)
+    if (!g_ascii_isalnum (*p) && *p != '-' && *p != '_' && *p != '.')
+      return FALSE;
+  return TRUE;
+}
+
+static gboolean
 panel_content_is_valid (const gchar *content)
 {
   const gchar *row_start = content;
@@ -912,8 +925,9 @@ gimp_extension_panel_register (Gimp        *gimp,
 {
   GimpExtensionPanel *panel;
   gchar *key;
+  gboolean newly_registered;
 
-  if (!panel_identifier_is_valid (owner) ||
+  if (!panel_owner_is_valid (owner) ||
       !panel_identifier_is_valid (identifier) || strlen (identifier) > 64 ||
       !title || !content || !presentation || !selected_item ||
       !action_label || !action_procedure ||
@@ -953,6 +967,7 @@ gimp_extension_panel_register (Gimp        *gimp,
     panels = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
                                     (GDestroyNotify) panel_free);
   panel = panel_lookup (owner, identifier);
+  newly_registered = panel == NULL;
   if (!panel)
     {
       panel = g_new0 (GimpExtensionPanel, 1);
@@ -985,7 +1000,26 @@ gimp_extension_panel_register (Gimp        *gimp,
   panel->item_action_procedure = g_strdup (item_action_procedure);
 
   if (panel_factory)
-    panel_register_entry (panel);
+    {
+      panel_register_entry (panel);
+
+      /* When registration happens after dialog-factory restoration (for example,
+       * a Python extension started from its menu), show only a genuinely new dock.
+       * Existing session info records both placement and the user's closed state. */
+      if (newly_registered &&
+          !gimp_dialog_factory_find_session_info (panel_factory,
+                                                  panel->factory_identifier))
+        {
+          GError *show_error = NULL;
+
+          if (!gimp_extension_panel_show (gimp, owner, identifier, &show_error))
+            {
+              g_warning ("Could not show newly registered extension panel: %s",
+                         show_error ? show_error->message : "unknown error");
+              g_clear_error (&show_error);
+            }
+        }
+    }
 
   return TRUE;
 }
