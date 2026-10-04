@@ -35,6 +35,8 @@ export GIMP3_DIRECTORY="$HOME/.config/GIMP/imanganation-dev"
 mkdir -p "$GIMP3_DIRECTORY/plug-ins/imanganation"
 ln -s "$(realpath ../gimp/imanganation/imanganation.py)" \
   "$GIMP3_DIRECTORY/plug-ins/imanganation/imanganation.py"
+ln -s "$(realpath ../gimp/imanganation/project_store.py)" \
+  "$GIMP3_DIRECTORY/plug-ins/imanganation/project_store.py"
 chmod +x "$GIMP3_DIRECTORY/plug-ins/imanganation/imanganation.py"
 /tmp/imanganation-gimp-build/app/gimp-3.3
 ```
