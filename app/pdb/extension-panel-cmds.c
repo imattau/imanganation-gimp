@@ -111,7 +111,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                gimp_param_spec_string ("content", "content",
                                                        "Host-rendered text. Tree rows use leading tabs for depth and '# ' "
                                                        "for non-activating headings. Activatable list, tile and tree rows "
-                                                       "may use id<TAB>label; legacy rows use their label as the id. "
+                                                       "may use id<TAB>label; tile rows may add a third tab-separated "
+                                                       "absolute PNG preview path. Legacy rows use their label as the id. "
                                                        "Properties use '# ' section headings and tab-separated name/value "
                                                        "rows. Content is limited to 1 MiB, "
                                                        "2048 rows, and 4096 bytes per row.",

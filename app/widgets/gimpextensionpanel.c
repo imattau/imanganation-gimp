@@ -648,10 +648,27 @@ panel_create_content (GimpExtensionPanel *panel)
           const gchar *tab = strchr (text, '\t');
           gchar *item_id;
           GtkWidget *label;
+          GdkPixbuf *pixbuf = NULL;
           if (tab)
             {
               item_id = g_strndup (text, tab - text);
               text = tab + 1;
+              tab = strchr (text, '\t');
+              if (tab)
+                {
+                  gchar *preview_path = g_strdup (tab + 1);
+
+                  *((gchar *) tab) = '\0';
+                  if (g_path_is_absolute (preview_path))
+                    {
+                      GError *error = NULL;
+
+                      pixbuf = gdk_pixbuf_new_from_file_at_scale (
+                        preview_path, 96, 96, TRUE, &error);
+                      g_clear_error (&error);
+                    }
+                  g_free (preview_path);
+                }
             }
           else
             item_id = g_strdup (text);
@@ -659,6 +676,12 @@ panel_create_content (GimpExtensionPanel *panel)
           gtk_widget_set_size_request (frame, 86, 112);
           gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
           gtk_label_set_xalign (GTK_LABEL (label), 0.5);
+          if (pixbuf)
+            {
+              gtk_image_set_from_pixbuf (GTK_IMAGE (thumbnail), pixbuf);
+              g_object_unref (pixbuf);
+            }
+          gtk_widget_set_size_request (thumbnail, 80, 80);
           gtk_box_pack_start (GTK_BOX (tile), thumbnail, TRUE, TRUE, 0);
           gtk_box_pack_end (GTK_BOX (tile), label, FALSE, FALSE, 0);
           gtk_container_add (GTK_CONTAINER (frame), tile);
