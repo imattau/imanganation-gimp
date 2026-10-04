@@ -35,9 +35,17 @@
 #include "pdb/gimppdb.h"
 #include "pdb/gimpprocedure.h"
 
+#include "config/gimpguiconfig.h"
+
+#include "display/display-types.h"
+#include "display/gimpimagewindow.h"
+
 #include "gimpextensionpanel.h"
 #include "gimpdialogfactory.h"
 #include "gimpdockable.h"
+#include "gimpdock.h"
+#include "gimpdockbook.h"
+#include "gimpdockcolumns.h"
 #include "gimpdocked.h"
 #include "gimphelp-ids.h"
 #include "gimp-intl.h"
@@ -654,7 +662,8 @@ panel_create_content (GimpExtensionPanel *panel)
     {
       container = panel_create_tree_content (panel, items);
     }
-  else if (!strcmp (panel->presentation, "tiles"))
+  else if (!strcmp (panel->presentation, "tiles") ||
+           !strcmp (panel->presentation, "strip"))
     {
       GtkWidget *flow = gtk_flow_box_new ();
       GtkFlowBoxChild *selected_child = NULL;
@@ -663,8 +672,23 @@ panel_create_content (GimpExtensionPanel *panel)
       gtk_flow_box_set_activate_on_single_click (GTK_FLOW_BOX (flow), TRUE);
       g_signal_connect (flow, "child-activated",
                         G_CALLBACK (panel_tile_activated), panel);
-      gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 6);
-      gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 2);
+      if (!strcmp (panel->presentation, "strip"))
+        {
+          /* One horizontal row (e.g. a bottom page strip): vertical "lines"
+           * of a single tile each, scrolled sideways */
+          gtk_orientable_set_orientation (GTK_ORIENTABLE (flow),
+                                          GTK_ORIENTATION_VERTICAL);
+          gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 1);
+          gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 1);
+          /* Tiles keep their own width instead of stretching across the strip */
+          gtk_widget_set_halign (flow, GTK_ALIGN_START);
+          gtk_widget_set_valign (flow, GTK_ALIGN_START);
+        }
+      else
+        {
+          gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 6);
+          gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 2);
+        }
       gtk_flow_box_set_row_spacing (GTK_FLOW_BOX (flow), 6);
       gtk_flow_box_set_column_spacing (GTK_FLOW_BOX (flow), 6);
       container = flow;
@@ -787,6 +811,10 @@ panel_create_scrolled_content (GimpExtensionPanel *panel)
                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scrolled),
                                               420);
+  /* A strip is one row of tiles: never squeeze it below a whole tile */
+  if (!strcmp (panel->presentation, "strip"))
+    gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled),
+                                                136);
   gtk_container_add (GTK_CONTAINER (scrolled), content);
 
   return scrolled;
@@ -1186,7 +1214,7 @@ gimp_extension_panel_register (Gimp        *gimp,
       strlen (item_action_procedure) > 256 ||
       strlen (selected_item) > EXTENSION_PANEL_MAX_ROW_BYTES ||
       (strcmp (presentation, "list") && strcmp (presentation, "tree") &&
-       strcmp (presentation, "tiles") &&
+       strcmp (presentation, "tiles") && strcmp (presentation, "strip") &&
        strcmp (presentation, "properties")) ||
       !g_utf8_validate (title, -1, NULL) ||
       !panel_content_is_valid (content) ||
@@ -1285,6 +1313,41 @@ gimp_extension_panel_register (Gimp        *gimp,
   return TRUE;
 }
 
+/* Open a "strip" dock (one row of tiles, e.g. a page strip) in the image
+ * window's bottom dock area, joining a dock already there. Returns FALSE when
+ * there is no single-window image window to put it in. */
+static gboolean
+panel_show_at_bottom (Gimp               *gimp,
+                      GimpExtensionPanel *panel)
+{
+  GList           *windows = gimp_get_image_windows (gimp);
+  GimpDockColumns *columns;
+  GList           *docks;
+  GtkWidget       *dockbook = NULL;
+
+  if (!windows || !GIMP_GUI_CONFIG (gimp->config)->single_window_mode)
+    {
+      g_list_free (windows);
+      return FALSE;
+    }
+  columns = gimp_image_window_get_bottom_docks (GIMP_IMAGE_WINDOW (windows->data));
+  g_list_free (windows);
+
+  docks = gimp_dock_columns_get_docks (columns);
+  if (docks)
+    {
+      GList *books = gimp_dock_get_dockbooks (GIMP_DOCK (docks->data));
+
+      if (books)
+        dockbook = books->data;
+    }
+  if (!dockbook)
+    gimp_dock_columns_prepare_dockbook (columns, -1, &dockbook);
+
+  return gimp_dockbook_add_from_dialog_factory (GIMP_DOCKBOOK (dockbook),
+                                                panel->factory_identifier) != NULL;
+}
+
 gboolean
 gimp_extension_panel_show (Gimp        *gimp,
                            const gchar *owner,
@@ -1315,9 +1378,10 @@ gimp_extension_panel_show (Gimp        *gimp,
     }
 
   panel_register_entry (panel);
-  gimp_window_strategy_show_dockable_dialog (
-    GIMP_WINDOW_STRATEGY (gimp_get_window_strategy (gimp)), gimp,
-    panel_factory, gimp_get_monitor_at_pointer (), panel->factory_identifier);
+  if (strcmp (panel->presentation, "strip") || !panel_show_at_bottom (gimp, panel))
+    gimp_window_strategy_show_dockable_dialog (
+      GIMP_WINDOW_STRATEGY (gimp_get_window_strategy (gimp)), gimp,
+      panel_factory, gimp_get_monitor_at_pointer (), panel->factory_identifier);
   if (panel_dockable (panel))
     panel_mark_seen (panel);
   return TRUE;

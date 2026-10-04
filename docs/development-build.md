@@ -47,13 +47,15 @@ chmod +x "$GIMP3_DIRECTORY/plug-ins/imanganation/imanganation.py"
 ```
 
 `GIMP3_SYSCONFDIR` makes the uninstalled build read the fork's defaults: `etc/sessionrc`
-(the workspace layout: Project navigator and toolbox left, Context with Script and Page
-Filmstrip tabs above Layers right) and `etc/toolrc` (a compact toolbox: Select, Move,
+(the workspace layout: Project navigator and toolbox left, Context with a Script tab
+above Layers right, the Pages strip along the bottom) and `etc/toolrc` (a compact toolbox: Select, Move,
 Transform, Brush, Erase, Fill, Text, Colour picker; other tools stay in the Tools menu).
 They apply only to a profile without its own `sessionrc`/`toolrc`; delete those files, or
 use *Preferences → Interface → Window Management → Reset Saved Window Positions*, to
 return an existing profile to them. An extension dock the layout leaves out stays closed
-until opened from the plug-in (e.g. *Windows → Imanganation*).
+until opened from the plug-in (e.g. *Windows → Imanganation*). The image window has a
+bottom dock area (`(side bottom)` in sessionrc, height in `bottom-docks-height`), hidden
+while empty; extension docks with the `strip` presentation open there.
 
 An uninstalled build finds none of its own plug-ins, so it cannot load PNG, JPEG or
 other image files. Point `GIMP_TESTING_PLUGINDIRS` at the build's C plug-in folders

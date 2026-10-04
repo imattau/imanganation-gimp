@@ -114,7 +114,8 @@ gimp_session_info_dock_serialize (GimpConfigWriter    *writer,
   if (dock_info->side != -1)
     {
       const char *side_text =
-        dock_info->side == GIMP_ALIGN_LEFT ? "left" : "right";
+        dock_info->side == GIMP_ALIGN_LEFT   ? "left"   :
+        dock_info->side == GIMP_ALIGN_BOTTOM ? "bottom" : "right";
 
       gimp_config_writer_open (writer, "side");
       gimp_config_writer_print (writer, side_text, strlen (side_text));
@@ -184,6 +185,8 @@ gimp_session_info_dock_deserialize (GScanner             *scanner,
 
               if (strcmp ("left", scanner->value.v_identifier) == 0)
                 (*dock_info)->side = GIMP_ALIGN_LEFT;
+              else if (strcmp ("bottom", scanner->value.v_identifier) == 0)
+                (*dock_info)->side = GIMP_ALIGN_BOTTOM;
               else
                 (*dock_info)->side = GIMP_ALIGN_RIGHT;
               break;

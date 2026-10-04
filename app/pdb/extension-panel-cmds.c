@@ -120,7 +120,8 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("presentation", "presentation",
-                                                       "Host layout: list, tree, tiles, or properties",
+                                                       "Host layout: list, tree, tiles, strip (tiles in one horizontal row), "
+                                                       "or properties",
                                                        FALSE, FALSE, TRUE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,

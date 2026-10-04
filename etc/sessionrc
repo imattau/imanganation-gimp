@@ -6,7 +6,8 @@
 # you quit GIMP.  If this file isn't found, defaults are used.
 #
 # Imanganation workspace: Project navigator and a compact toolbox on the left,
-# Context (with Script and Page Filmstrip tabs) above Layers on the right. Other
+# Context (with a Script tab) above Layers on the right, and the page strip
+# (Page Filmstrip) along the bottom. Other
 # Imanganation docks open from Windows > Imanganation; stock dialogs from
 # Windows > Dockable Dialogs.
 
@@ -22,6 +23,7 @@
     (aux-info
         (left-docks-width "300")
         (right-docks-width "360")
+        (bottom-docks-height "240")
         (maximized "yes"))
     (gimp-dock
         (side left)
@@ -44,10 +46,6 @@
             (dockable "extension-panel-imanganation.py::script"
                 (tab-style automatic)
                 (aux-info
-                    (show-button-bar "true")))
-            (dockable "extension-panel-imanganation.py::filmstrip"
-                (tab-style automatic)
-                (aux-info
                     (show-button-bar "true"))))
         (book
             (position 520)
@@ -55,6 +53,14 @@
             (dockable "gimp-layer-list"
                 (tab-style automatic)
                 (preview-size 32)
+                (aux-info
+                    (show-button-bar "true")))))
+    (gimp-dock
+        (side bottom)
+        (book
+            (current-page 0)
+            (dockable "extension-panel-imanganation.py::filmstrip"
+                (tab-style automatic)
                 (aux-info
                     (show-button-bar "true"))))))
 

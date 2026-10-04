@@ -102,6 +102,7 @@
 /* The width of the left and right dock areas */
 #define GIMP_IMAGE_WINDOW_LEFT_DOCKS_WIDTH  "left-docks-width"
 #define GIMP_IMAGE_WINDOW_RIGHT_DOCKS_WIDTH "right-docks-width"
+#define GIMP_IMAGE_WINDOW_BOTTOM_DOCKS_HEIGHT "bottom-docks-height"
 
 /* deprecated property: GtkPaned position of the right docks area */
 #define GIMP_IMAGE_WINDOW_RIGHT_DOCKS_POS  "right-docks-position"
@@ -139,6 +140,8 @@ struct _GimpImageWindowPrivate
   GtkWidget         *right_hpane;
   GtkWidget         *notebook;
   GtkWidget         *right_docks;
+  GtkWidget         *bottom_vpane;  /* docks/canvas row above, bottom docks below */
+  GtkWidget         *bottom_docks;
 
   GHashTable        *pad_controllers;
 
@@ -225,6 +228,7 @@ static GList   * gimp_image_window_get_aux_info        (GimpSessionManaged  *ses
 static void      gimp_image_window_set_aux_info        (GimpSessionManaged  *session_managed,
                                                         GList               *aux_info);
 
+static void      gimp_image_window_update_bottom_docks (GimpImageWindow     *window);
 static void      gimp_image_window_config_notify       (GimpImageWindow     *window,
                                                         GParamSpec          *pspec,
                                                         GimpGuiConfig       *config);
@@ -524,10 +528,18 @@ gimp_image_window_constructed (GObject *object)
     }
 #endif
 
+  /* A vertical pane: the row of left docks, images and right docks above,
+   * full-width bottom docks (e.g. a page strip) below */
+  private->bottom_vpane = gtk_paned_new (GTK_ORIENTATION_VERTICAL);
+  gtk_paned_set_wide_handle (GTK_PANED (private->bottom_vpane), TRUE);
+  gtk_box_pack_start (GTK_BOX (private->main_vbox), private->bottom_vpane,
+                      TRUE, TRUE, 0);
+  gtk_widget_set_visible (private->bottom_vpane, TRUE);
+
   /* Create the hbox that contains docks and images */
   private->hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start (GTK_BOX (private->main_vbox), private->hbox,
-                      TRUE, TRUE, 0);
+  gtk_paned_pack1 (GTK_PANED (private->bottom_vpane), private->hbox,
+                   TRUE, FALSE);
   gtk_widget_set_visible (private->hbox, TRUE);
 
   /* Create the left pane */
@@ -585,6 +597,21 @@ gimp_image_window_constructed (GObject *object)
   gtk_paned_pack2 (GTK_PANED (private->right_hpane), private->right_docks,
                    FALSE, FALSE);
   gtk_widget_set_visible (private->right_docks, config->single_window_mode);
+
+  /* Create the bottom dock columns widget; shown only while it holds docks */
+  private->bottom_docks =
+    gimp_dock_columns_new (gimp_get_user_context (private->gimp),
+                           private->dialog_factory,
+                           menubar_manager);
+  gtk_paned_pack2 (GTK_PANED (private->bottom_vpane), private->bottom_docks,
+                   FALSE, FALSE);
+  gtk_widget_set_visible (private->bottom_docks, FALSE);
+  g_signal_connect_object (private->bottom_docks, "dock-added",
+                           G_CALLBACK (gimp_image_window_update_bottom_docks),
+                           window, G_CONNECT_SWAPPED);
+  g_signal_connect_object (private->bottom_docks, "dock-removed",
+                           G_CALLBACK (gimp_image_window_update_bottom_docks),
+                           window, G_CONNECT_SWAPPED);
 
   g_signal_connect_object (config, "notify::single-window-mode",
                            G_CALLBACK (gimp_image_window_config_notify),
@@ -1051,6 +1078,13 @@ gimp_image_window_get_docks (GimpDockContainer *dock_container)
       all_docks = g_list_append (all_docks, GIMP_DOCK (iter->data));
     }
 
+  for (iter = gimp_dock_columns_get_docks (GIMP_DOCK_COLUMNS (private->bottom_docks));
+       iter;
+       iter = g_list_next (iter))
+    {
+      all_docks = g_list_append (all_docks, GIMP_DOCK (iter->data));
+    }
+
   return all_docks;
 }
 
@@ -1087,6 +1121,12 @@ gimp_image_window_add_dock (GimpDockContainer   *dock_container,
   if (dock_info->side == GIMP_ALIGN_LEFT)
     {
       gimp_dock_columns_add_dock (GIMP_DOCK_COLUMNS (private->left_docks),
+                                  dock,
+                                  -1 /*index*/);
+    }
+  else if (dock_info->side == GIMP_ALIGN_BOTTOM)
+    {
+      gimp_dock_columns_add_dock (GIMP_DOCK_COLUMNS (private->bottom_docks),
                                   dock,
                                   -1 /*index*/);
     }
@@ -1134,6 +1174,16 @@ gimp_image_window_get_dock_side (GimpDockContainer *dock_container,
         side = GIMP_ALIGN_RIGHT;
     }
 
+  for (iter = gimp_dock_columns_get_docks (GIMP_DOCK_COLUMNS (private->bottom_docks));
+       iter && side == -1;
+       iter = g_list_next (iter))
+    {
+      GimpDock *dock_iter = GIMP_DOCK (iter->data);
+
+      if (dock_iter == dock)
+        side = GIMP_ALIGN_BOTTOM;
+    }
+
   return side;
 }
 
@@ -1170,6 +1220,18 @@ gimp_image_window_get_aux_info (GimpSessionManaged *session_managed)
                                        widthbuf);
       aux_info = g_list_append (aux_info, aux);
 
+      if (gtk_widget_get_visible (private->bottom_docks))
+        {
+          gtk_widget_get_allocation (private->bottom_vpane, &allocation);
+
+          g_snprintf (widthbuf, sizeof (widthbuf), "%d",
+                      allocation.height -
+                      gtk_paned_get_position (GTK_PANED (private->bottom_vpane)));
+          aux = gimp_session_info_aux_new (GIMP_IMAGE_WINDOW_BOTTOM_DOCKS_HEIGHT,
+                                           widthbuf);
+          aux_info = g_list_append (aux_info, aux);
+        }
+
       aux = gimp_session_info_aux_new (GIMP_IMAGE_WINDOW_MAXIMIZED,
                                        gimp_image_window_is_maximized (GIMP_IMAGE_WINDOW (session_managed)) ?
                                        "yes" : "no");
@@ -1199,6 +1261,22 @@ gimp_image_window_set_right_docks_width (GtkPaned      *paned,
 }
 
 static void
+gimp_image_window_set_bottom_docks_height (GtkPaned      *paned,
+                                           GtkAllocation *allocation,
+                                           void          *data)
+{
+  gint height = GPOINTER_TO_INT (data);
+
+  g_return_if_fail (GTK_IS_PANED (paned));
+
+  gtk_paned_set_position (paned, MAX (allocation->height - height, 0));
+
+  g_signal_handlers_disconnect_by_func (paned,
+                                        gimp_image_window_set_bottom_docks_height,
+                                        data);
+}
+
+static void
 gimp_image_window_set_aux_info (GimpSessionManaged *session_managed,
                                 GList              *aux_info)
 {
@@ -1206,6 +1284,7 @@ gimp_image_window_set_aux_info (GimpSessionManaged *session_managed,
   GList                  *iter;
   gint                    left_docks_width      = G_MININT;
   gint                    right_docks_width     = G_MININT;
+  gint                    bottom_docks_height   = G_MININT;
   gboolean                wait_with_right_docks = FALSE;
   gboolean                maximized             = FALSE;
 #ifdef G_OS_WIN32
@@ -1229,6 +1308,8 @@ gimp_image_window_set_aux_info (GimpSessionManaged *session_managed,
         width = &right_docks_width;
       else if (! strcmp (aux->name, GIMP_IMAGE_WINDOW_RIGHT_DOCKS_POS))
         width = &right_docks_width;
+      else if (! strcmp (aux->name, GIMP_IMAGE_WINDOW_BOTTOM_DOCKS_HEIGHT))
+        width = &bottom_docks_height;
       else if (! strcmp (aux->name, GIMP_IMAGE_WINDOW_MAXIMIZED))
         if (! g_ascii_strcasecmp (aux->value, "yes"))
           maximized = TRUE;
@@ -1286,6 +1367,16 @@ gimp_image_window_set_aux_info (GimpSessionManaged *session_managed,
           gtk_paned_set_position (GTK_PANED (private->right_hpane),
                                   - right_docks_width);
         }
+    }
+
+  if (bottom_docks_height != G_MININT && bottom_docks_height > 0)
+    {
+      /* Like the right docks: the height is measured from the bottom, so
+       * the position can only be set once the pane has its size */
+      g_signal_connect_data (private->bottom_vpane, "size-allocate",
+                             G_CALLBACK (gimp_image_window_set_bottom_docks_height),
+                             GINT_TO_POINTER (bottom_docks_height), NULL,
+                             G_CONNECT_AFTER);
     }
 
 #ifdef G_OS_WIN32
@@ -1427,6 +1518,32 @@ gimp_image_window_get_left_docks (GimpImageWindow  *window)
   private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
 
   return GIMP_DOCK_COLUMNS (private->left_docks);
+}
+
+GimpDockColumns  *
+gimp_image_window_get_bottom_docks (GimpImageWindow  *window)
+{
+  GimpImageWindowPrivate *private;
+
+  g_return_val_if_fail (GIMP_IS_IMAGE_WINDOW (window), NULL);
+
+  private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
+
+  return GIMP_DOCK_COLUMNS (private->bottom_docks);
+}
+
+/* Show the bottom docks only while they hold docks (and docks are shown at
+ * all), so an emptied bottom row gives its space back to the canvas. */
+static void
+gimp_image_window_update_bottom_docks (GimpImageWindow *window)
+{
+  GimpImageWindowPrivate *private = GIMP_IMAGE_WINDOW_GET_PRIVATE (window);
+  GimpGuiConfig          *config  = GIMP_GUI_CONFIG (private->gimp->config);
+  gboolean                show;
+
+  show = (config->single_window_mode && ! config->hide_docks &&
+          gimp_dock_columns_get_docks (GIMP_DOCK_COLUMNS (private->bottom_docks)));
+  gtk_widget_set_visible (private->bottom_docks, show);
 }
 
 GimpDockColumns  *
@@ -1663,6 +1780,14 @@ gimp_image_window_has_toolbox (GimpImageWindow *window)
     }
 
   for (iter = gimp_dock_columns_get_docks (GIMP_DOCK_COLUMNS (private->right_docks));
+       iter;
+       iter = g_list_next (iter))
+    {
+      if (GIMP_IS_TOOLBOX (iter->data))
+        return TRUE;
+    }
+
+  for (iter = gimp_dock_columns_get_docks (GIMP_DOCK_COLUMNS (private->bottom_docks));
        iter;
        iter = g_list_next (iter))
     {
@@ -2067,6 +2192,7 @@ gimp_image_window_config_notify (GimpImageWindow *window,
           gimp_image_window_keep_canvas_pos (window);
           gtk_widget_set_visible (private->left_docks, show_docks);
           gtk_widget_set_visible (private->right_docks, show_docks);
+          gimp_image_window_update_bottom_docks (window);
 
           /* If docks are being shown, and we are in multi-window-mode,
            * and this is the window of the active display, try to set

@@ -307,14 +307,18 @@ static void
 gimp_ui_configurer_separate_docks (GimpUIConfigurer  *ui_configurer,
                                    GimpImageWindow   *image_window)
 {
-  GimpDockColumns *left_docks  = NULL;
-  GimpDockColumns *right_docks = NULL;
+  GimpDockColumns *left_docks   = NULL;
+  GimpDockColumns *right_docks  = NULL;
+  GimpDockColumns *bottom_docks = NULL;
 
-  left_docks  = gimp_image_window_get_left_docks (image_window);
-  right_docks = gimp_image_window_get_right_docks (image_window);
+  left_docks   = gimp_image_window_get_left_docks (image_window);
+  right_docks  = gimp_image_window_get_right_docks (image_window);
+  bottom_docks = gimp_image_window_get_bottom_docks (image_window);
 
   gimp_ui_configurer_move_docks_to_window (ui_configurer, left_docks, GIMP_ALIGN_LEFT);
   gimp_ui_configurer_move_docks_to_window (ui_configurer, right_docks, GIMP_ALIGN_RIGHT);
+  /* Separate windows have no bottom edge to dock to; put them on the right */
+  gimp_ui_configurer_move_docks_to_window (ui_configurer, bottom_docks, GIMP_ALIGN_RIGHT);
 }
 
 /**

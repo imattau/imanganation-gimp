@@ -41,6 +41,7 @@ void               gimp_image_window_destroy              (GimpImageWindow   *wi
 
 GimpDockColumns  * gimp_image_window_get_left_docks       (GimpImageWindow  *window);
 GimpDockColumns  * gimp_image_window_get_right_docks      (GimpImageWindow  *window);
+GimpDockColumns  * gimp_image_window_get_bottom_docks     (GimpImageWindow  *window);
 
 void               gimp_image_window_add_shell            (GimpImageWindow  *window,
                                                            GimpDisplayShell *shell);
