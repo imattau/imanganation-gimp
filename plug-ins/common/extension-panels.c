@@ -154,7 +154,7 @@ extension_panels_action (GimpProcedure *procedure,
   if (!strcmp (identifier, "project"))
     content = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t✓  Page 16\n\t\t●  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
   else if (!strcmp (identifier, "inspector"))
-    content = "# Panel 04\n# Context\nPage\tPage 17\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
+    content = "# Panel 04\n# Context\nPage\tPage 17\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear";
   else
     content = "14  ✓\n15  ✓\n16  ✓\n17  ●\n18  ○";
 
@@ -254,7 +254,7 @@ extension_panels_select (GimpProcedure       *procedure,
     page == 17 ? "● " : "", page == 17 ? "" : "  ○",
     page == 18 ? "● " : "", page == 18 ? "" : "  ○");
   inspector = g_strdup_printf (
-    "# Panel 03\n# Context\nPage\tPage %02d\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear",
+    "# Panel 03\n# Context\nPage\tPage %02d\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear",
     page);
   project_selection = g_strdup_printf ("●  Page %d", page);
   filmstrip_selection = g_strdup_printf ("● %d", page);
@@ -326,7 +326,7 @@ extension_panels_run (GimpProcedure *procedure,
     ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
   };
   const gchar *project = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t●  Page 16\n\t\t○  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
-  const gchar *inspector = "# Panel 03\n# Context\nPage\tPage 16\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
+  const gchar *inspector = "# Panel 03\n# Context\nPage\tPage 16\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear";
   const gchar *filmstrip = "14  ✓\n15  ✓\n16  ●\n17  ○\n18  ○";
 
   install_action (plug_in, "project");
