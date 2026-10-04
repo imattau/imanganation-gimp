@@ -203,9 +203,37 @@ panel_tree_cell_data (GtkTreeViewColumn *column,
 }
 
 static gchar *
-panel_tree_path_key (GtkTreePath *path)
+panel_tree_iter_key (GtkTreeModel *model,
+                     GtkTreeIter  *iter)
 {
-  return gtk_tree_path_to_string (path);
+  GPtrArray *labels = g_ptr_array_new_with_free_func (g_free);
+  GtkTreeIter current = *iter;
+  GString *key = g_string_new (NULL);
+  gint i;
+
+  for (;;)
+    {
+      gchar *label;
+      GtkTreeIter parent;
+
+      gtk_tree_model_get (model, &current, 0, &label, -1);
+      g_ptr_array_add (labels, label);
+
+      if (!gtk_tree_model_iter_parent (model, &parent, &current))
+        break;
+      current = parent;
+    }
+
+  for (i = labels->len - 1; i >= 0; i--)
+    {
+      const gchar *label = g_ptr_array_index (labels, i);
+
+      g_string_append_printf (key, "%" G_GSIZE_FORMAT ":%s/",
+                              strlen (label), label);
+    }
+
+  g_ptr_array_unref (labels);
+  return g_string_free (key, FALSE);
 }
 
 static void
@@ -214,7 +242,8 @@ panel_tree_state_changed (GtkTreeView        *tree_view,
                           GtkTreePath        *path,
                           GimpExtensionPanel *panel)
 {
-  gchar *key = panel_tree_path_key (path);
+  GtkTreeModel *model = gtk_tree_view_get_model (tree_view);
+  gchar *key = panel_tree_iter_key (model, iter);
 
   if (gtk_tree_view_row_expanded (tree_view, path))
     g_hash_table_remove (panel->collapsed_tree_paths, key);
@@ -244,7 +273,7 @@ panel_tree_restore_collapsed (GimpExtensionPanel *panel,
       if (heading)
         {
           GtkTreePath *path = gtk_tree_model_get_path (model, &iter);
-          gchar *key = panel_tree_path_key (path);
+          gchar *key = panel_tree_iter_key (model, &iter);
 
           if (g_hash_table_contains (panel->collapsed_tree_paths, key))
             gtk_tree_view_collapse_row (tree_view, path);
@@ -256,6 +285,29 @@ panel_tree_restore_collapsed (GimpExtensionPanel *panel,
 
       valid = gtk_tree_model_iter_next (model, &iter);
     }
+}
+
+static gboolean
+panel_tree_has_collapsed_ancestor (GimpExtensionPanel *panel,
+                                   GtkTreeModel       *model,
+                                   GtkTreeIter        *iter)
+{
+  GtkTreeIter parent;
+
+  while (gtk_tree_model_iter_parent (model, &parent, iter))
+    {
+      gchar *key = panel_tree_iter_key (model, &parent);
+      gboolean collapsed = g_hash_table_contains (panel->collapsed_tree_paths,
+                                                   key);
+
+      g_free (key);
+      if (collapsed)
+        return TRUE;
+
+      *iter = parent;
+    }
+
+  return FALSE;
 }
 
 static gboolean
@@ -372,16 +424,13 @@ panel_create_tree_content (GimpExtensionPanel *panel,
                     G_CALLBACK (panel_tree_state_changed), panel);
   if (selected_path)
     {
-      GtkTreePath *ancestor = gtk_tree_path_copy (selected_path);
-      gboolean hidden = FALSE;
+      GtkTreeIter selected_iter;
+      gboolean hidden;
 
-      while (gtk_tree_path_up (ancestor))
-        {
-          gchar *key = panel_tree_path_key (ancestor);
-          if (g_hash_table_contains (panel->collapsed_tree_paths, key))
-            hidden = TRUE;
-          g_free (key);
-        }
+      gtk_tree_model_get_iter (GTK_TREE_MODEL (store), &selected_iter,
+                               selected_path);
+      hidden = panel_tree_has_collapsed_ancestor (
+        panel, GTK_TREE_MODEL (store), &selected_iter);
 
       if (hidden)
         gtk_tree_selection_select_path (
@@ -393,7 +442,6 @@ panel_create_tree_content (GimpExtensionPanel *panel,
           gtk_tree_view_scroll_to_cell (GTK_TREE_VIEW (tree), selected_path,
                                         NULL, FALSE, 0.0, 0.0);
         }
-      gtk_tree_path_free (ancestor);
       gtk_tree_path_free (selected_path);
     }
 
