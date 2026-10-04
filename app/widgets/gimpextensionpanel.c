@@ -165,6 +165,42 @@ panel_list_row_activated (GtkListBox          *list,
   panel_item_activated (panel, gtk_bin_get_child (GTK_BIN (row)));
 }
 
+static void
+panel_tree_row_activated (GtkTreeView         *tree_view,
+                          GtkTreePath         *path,
+                          GtkTreeViewColumn   *column,
+                          GimpExtensionPanel  *panel)
+{
+  GtkTreeModel *model = gtk_tree_view_get_model (tree_view);
+  GtkTreeIter   iter;
+
+  if (gtk_tree_model_get_iter (model, &iter, path))
+    {
+      gchar    *text = NULL;
+      gboolean  heading;
+
+      gtk_tree_model_get (model, &iter, 0, &text, 1, &heading, -1);
+      if (!heading)
+        panel_run_procedure (panel, panel->item_action_procedure, text);
+      g_free (text);
+    }
+}
+
+static void
+panel_tree_cell_data (GtkTreeViewColumn *column,
+                      GtkCellRenderer   *renderer,
+                      GtkTreeModel      *model,
+                      GtkTreeIter       *iter,
+                      gpointer           user_data)
+{
+  gboolean heading;
+
+  gtk_tree_model_get (model, iter, 1, &heading, -1);
+  g_object_set (renderer,
+                "weight", heading ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL,
+                NULL);
+}
+
 static gboolean
 panel_content_has_item (const gchar *content,
                         const gchar *presentation,
@@ -207,6 +243,80 @@ panel_tile_activated (GtkFlowBox         *flow,
                                                  "extension-panel-item-label") : NULL;
 
   panel_item_activated (panel, label);
+}
+
+static GtkWidget *
+panel_create_tree_content (GimpExtensionPanel *panel,
+                           gchar             **items)
+{
+  GtkTreeStore *store = gtk_tree_store_new (2, G_TYPE_STRING, G_TYPE_BOOLEAN);
+  GtkWidget *tree = gtk_tree_view_new_with_model (GTK_TREE_MODEL (store));
+  GtkCellRenderer *renderer = gtk_cell_renderer_text_new ();
+  GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes (
+    "", renderer, "text", 0, NULL);
+  GtkTreePath *selected_path = NULL;
+  GtkTreeIter parents[64];
+  gboolean    parent_valid[64] = { FALSE };
+  gint i;
+
+  gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (tree), FALSE);
+  gtk_tree_view_set_activate_on_single_click (GTK_TREE_VIEW (tree), TRUE);
+  gtk_tree_view_column_set_cell_data_func (column, renderer,
+                                           panel_tree_cell_data, NULL, NULL);
+  gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
+  g_signal_connect (tree, "row-activated",
+                    G_CALLBACK (panel_tree_row_activated), panel);
+
+  for (i = 0; items[i]; i++)
+    {
+      const gchar *text = items[i];
+      gint depth = 0;
+      gboolean heading;
+      GtkTreeIter iter;
+      GtkTreeIter *parent;
+      gint level;
+
+      while (*text == '\t')
+        {
+          text++;
+          depth++;
+        }
+      depth = MIN (depth, G_N_ELEMENTS (parents) - 1);
+      while (depth > 0 && !parent_valid[depth - 1])
+        depth--;
+
+      heading = g_str_has_prefix (text, "# ");
+      if (heading)
+        text += 2;
+
+      parent = depth > 0 ? &parents[depth - 1] : NULL;
+      gtk_tree_store_append (store, &iter, parent);
+      gtk_tree_store_set (store, &iter,
+                          0, text,
+                          1, heading,
+                          -1);
+
+      for (level = depth + 1; level < G_N_ELEMENTS (parent_valid); level++)
+        parent_valid[level] = FALSE;
+      parent_valid[depth] = heading;
+      if (heading)
+        parents[depth] = iter;
+
+      if (!heading && !strcmp (text, panel->selected_item))
+        selected_path = gtk_tree_model_get_path (GTK_TREE_MODEL (store), &iter);
+    }
+
+  gtk_tree_view_expand_all (GTK_TREE_VIEW (tree));
+  if (selected_path)
+    {
+      gtk_tree_view_set_cursor (GTK_TREE_VIEW (tree), selected_path, NULL, FALSE);
+      gtk_tree_view_scroll_to_cell (GTK_TREE_VIEW (tree), selected_path, NULL,
+                                    FALSE, 0.0, 0.0);
+      gtk_tree_path_free (selected_path);
+    }
+
+  g_object_unref (store);
+  return tree;
 }
 
 static GtkWidget *
@@ -264,7 +374,11 @@ panel_create_content (GimpExtensionPanel *panel)
               gtk_label_set_xalign (GTK_LABEL (label), 0.0);
               gtk_grid_attach (GTK_GRID (grid), label, 0, row++, 2, 1);
             }
-        }
+      }
+    }
+  else if (!strcmp (panel->presentation, "tree"))
+    {
+      container = panel_create_tree_content (panel, items);
     }
   else if (!strcmp (panel->presentation, "tiles"))
     {
@@ -302,7 +416,6 @@ panel_create_content (GimpExtensionPanel *panel)
     {
       GtkWidget *list = gtk_list_box_new ();
       GtkListBoxRow *selected_row = NULL;
-      gboolean tree = !strcmp (panel->presentation, "tree");
 
       gtk_list_box_set_selection_mode (GTK_LIST_BOX (list), GTK_SELECTION_SINGLE);
       gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (list), TRUE);
@@ -314,37 +427,17 @@ panel_create_content (GimpExtensionPanel *panel)
         {
           GtkWidget *row = gtk_list_box_row_new ();
           const gchar *text = items[i];
-          gint depth = 0;
-          gboolean heading;
           GtkWidget *label;
-
-          if (tree)
-            while (*text == '\t')
-              {
-                text++;
-                depth++;
-              }
-          heading = tree && g_str_has_prefix (text, "# ");
-          if (heading)
-            text += 2;
 
           label = gtk_label_new (text);
           gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-          gtk_widget_set_margin_start (label, 8 + depth * 16);
+          gtk_widget_set_margin_start (label, 8);
           gtk_widget_set_margin_end (label, 8);
           gtk_widget_set_margin_top (label, 5);
           gtk_widget_set_margin_bottom (label, 5);
-          if (heading)
-            {
-              gtk_style_context_add_class (gtk_widget_get_style_context (label),
-                                           "heading");
-              gtk_widget_set_margin_top (label, 8);
-              gtk_list_box_row_set_activatable (GTK_LIST_BOX_ROW (row), FALSE);
-              gtk_list_box_row_set_selectable (GTK_LIST_BOX_ROW (row), FALSE);
-            }
           gtk_container_add (GTK_CONTAINER (row), label);
           gtk_container_add (GTK_CONTAINER (list), row);
-          if (!heading && !strcmp (text, panel->selected_item))
+          if (!strcmp (text, panel->selected_item))
             selected_row = GTK_LIST_BOX_ROW (row);
         }
       if (selected_row)

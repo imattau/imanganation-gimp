@@ -152,7 +152,7 @@ extension_panels_action (GimpProcedure *procedure,
   gboolean success;
 
   if (!strcmp (identifier, "project"))
-    content = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t✓  Page 16\n\t●  Page 17\n\t○  Page 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References";
+    content = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t✓  Page 16\n\t\t●  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
   else if (!strcmp (identifier, "inspector"))
     content = "# Panel 04\n# Context\nPage\tPage 17\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
   else
@@ -184,6 +184,39 @@ extension_panels_select (GimpProcedure       *procedure,
   gboolean success;
 
   g_object_get (config, "item", &item, NULL);
+  if (!strcmp (item, "Mei Lin") || !strcmp (item, "Xiu Ying"))
+    {
+      inspector = g_strdup_printf (
+        "# %s\n# Character\nRole\t%s\nOutfit\tTravel\n# Expressions\nNeutral\tReady\nAngry\tReady\n# References\nImages\t3",
+        item, !strcmp (item, "Mei Lin") ? "Lead" : "Partner");
+      success = call_panel_proc ("gimp-extension-panel-update", "inspector",
+                                 inspector, NULL, "",
+                                 NULL, NULL, NULL, NULL);
+      g_free (inspector);
+      g_free ((gchar *) item);
+      return gimp_procedure_new_return_values (
+        procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
+  else if (!strcmp (item, "Temple Courtyard"))
+    inspector = g_strdup ("# Temple Courtyard\n# Location\nTime\tDusk\nWeather\tOvercast\n# References\nImages\t3");
+  else if (!strcmp (item, "Moonblade"))
+    inspector = g_strdup ("# Moonblade\n# Prop\nOwner\tMei Lin\nMaterial\tJade steel\n# References\nImages\t2");
+  else if (!strcmp (item, "Visual guide"))
+    inspector = g_strdup ("# Visual Guide\n# Reference set\nPalette\tJade and indigo\nPages\t01–12\nUse\tStyle reference");
+  else
+    inspector = NULL;
+
+  if (inspector)
+    {
+      success = call_panel_proc ("gimp-extension-panel-update", "inspector",
+                                 inspector, NULL, "",
+                                 NULL, NULL, NULL, NULL);
+      g_free (inspector);
+      g_free ((gchar *) item);
+      return gimp_procedure_new_return_values (
+        procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
+
   digits = strstr (item, "Page ");
   if (digits)
     digits += strlen ("Page ");
@@ -209,7 +242,7 @@ extension_panels_select (GimpProcedure       *procedure,
     }
 
   project = g_strdup_printf (
-    "# Blades of Fate\n# Chapter 04\n\t%sPage 14\n\t%sPage 15\n\t%sPage 16\n\t%sPage 17\n\t%sPage 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References",
+    "# Blades of Fate\n\t# Chapter 04\n\t\t%sPage 14\n\t\t%sPage 15\n\t\t%sPage 16\n\t\t%sPage 17\n\t\t%sPage 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide",
     page == 14 ? "●  " : "✓  ", page == 15 ? "●  " : "✓  ",
     page == 16 ? "●  " : "✓  ", page == 17 ? "●  " : "○  ",
     page == 18 ? "●  " : "○  ");
@@ -292,7 +325,7 @@ extension_panels_run (GimpProcedure *procedure,
   const gchar *actions[] = {
     ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
   };
-  const gchar *project = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t●  Page 16\n\t○  Page 17\n\t○  Page 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References";
+  const gchar *project = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t●  Page 16\n\t\t○  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
   const gchar *inspector = "# Panel 03\n# Context\nPage\tPage 16\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
   const gchar *filmstrip = "14  ✓\n15  ✓\n16  ●\n17  ○\n18  ○";
 
