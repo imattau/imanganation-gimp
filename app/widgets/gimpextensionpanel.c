@@ -102,6 +102,7 @@ panel_run_procedure (GimpExtensionPanel *panel,
                      const gchar       *procedure_name,
                      const gchar       *item)
 {
+  Gimp *gimp = panel->gimp;
   GimpValueArray *return_values;
   GError *error = NULL;
 
@@ -109,11 +110,11 @@ panel_run_procedure (GimpExtensionPanel *panel,
     {
       if (item)
         return_values = gimp_pdb_execute_procedure_by_name (
-          panel->gimp->pdb, gimp_get_user_context (panel->gimp), NULL, &error,
+          gimp->pdb, gimp_get_user_context (gimp), NULL, &error,
           procedure_name, G_TYPE_STRING, item, G_TYPE_NONE);
       else
         return_values = gimp_pdb_execute_procedure_by_name (
-          panel->gimp->pdb, gimp_get_user_context (panel->gimp), NULL, &error,
+          gimp->pdb, gimp_get_user_context (gimp), NULL, &error,
           procedure_name, G_TYPE_NONE);
       if (return_values)
         gimp_value_array_unref (return_values);
@@ -121,7 +122,7 @@ panel_run_procedure (GimpExtensionPanel *panel,
 
   if (error)
     {
-      gimp_message_literal (panel->gimp, NULL, GIMP_MESSAGE_ERROR,
+      gimp_message_literal (gimp, NULL, GIMP_MESSAGE_ERROR,
                             error->message);
       g_clear_error (&error);
     }
