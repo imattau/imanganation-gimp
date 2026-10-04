@@ -514,7 +514,9 @@ panel_popup_menu (GtkWidget          *attach,
                   GdkEvent           *event,
                   GimpExtensionPanel *panel,
                   const gchar        *menu_spec,
-                  const gchar        *row_id)
+                  const gchar        *row_id,
+                  GdkWindow          *rect_window,
+                  const GdkRectangle *rect)
 {
   GtkWidget *menu;
   gchar **entries;
@@ -551,7 +553,15 @@ panel_popup_menu (GtkWidget          *attach,
   gtk_menu_attach_to_widget (GTK_MENU (menu), attach, NULL);
   g_signal_connect (menu, "deactivate", G_CALLBACK (panel_menu_deactivate), NULL);
   gtk_widget_show_all (menu);
-  gtk_menu_popup_at_pointer (GTK_MENU (menu), event);
+  if (event)
+    gtk_menu_popup_at_pointer (GTK_MENU (menu), event);
+  else if (rect_window && rect)  /* keyboard: under the focused row */
+    gtk_menu_popup_at_rect (GTK_MENU (menu), rect_window, rect,
+                            GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
+  else
+    gtk_menu_popup_at_widget (GTK_MENU (menu), attach,
+                              GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
+  gtk_menu_shell_select_first (GTK_MENU_SHELL (menu), TRUE);
   return TRUE;
 }
 
@@ -574,7 +584,36 @@ panel_tree_button_press (GtkWidget          *tree,
   gtk_tree_model_get_iter (model, &iter, path);
   gtk_tree_path_free (path);
   gtk_tree_model_get (model, &iter, 2, &row_id, 3, &menu_spec, -1);
-  handled = panel_popup_menu (tree, (GdkEvent *) event, panel, menu_spec, row_id);
+  handled = panel_popup_menu (tree, (GdkEvent *) event, panel, menu_spec, row_id,
+                              NULL, NULL);
+  g_free (row_id);
+  g_free (menu_spec);
+  return handled;
+}
+
+/* The Menu key / Shift+F10 on a tree row: its menu, under the row */
+static gboolean
+panel_tree_popup_menu (GtkWidget          *tree,
+                       GimpExtensionPanel *panel)
+{
+  GtkTreeModel *model = gtk_tree_view_get_model (GTK_TREE_VIEW (tree));
+  GtkTreePath *path = NULL;
+  GtkTreeIter iter;
+  GdkRectangle rect;
+  gchar *row_id = NULL;
+  gchar *menu_spec = NULL;
+  gboolean handled;
+
+  gtk_tree_view_get_cursor (GTK_TREE_VIEW (tree), &path, NULL);
+  if (!path)
+    return FALSE;
+  gtk_tree_model_get_iter (model, &iter, path);
+  gtk_tree_view_get_cell_area (GTK_TREE_VIEW (tree), path, NULL, &rect);
+  gtk_tree_path_free (path);
+  gtk_tree_model_get (model, &iter, 2, &row_id, 3, &menu_spec, -1);
+  handled = panel_popup_menu (tree, NULL, panel, menu_spec, row_id,
+                              gtk_tree_view_get_bin_window (GTK_TREE_VIEW (tree)),
+                              &rect);
   g_free (row_id);
   g_free (menu_spec);
   return handled;
@@ -596,7 +635,100 @@ panel_tile_button_press (GtkWidget          *tile,
     return FALSE;
   return panel_popup_menu (tile, (GdkEvent *) event, panel,
                            g_object_get_data (G_OBJECT (tile), "extension-panel-menu"),
-                           g_object_get_data (G_OBJECT (tile), "extension-panel-item-id"));
+                           g_object_get_data (G_OBJECT (tile), "extension-panel-item-id"),
+                           NULL, NULL);
+}
+
+/* The Menu key / Shift+F10 on a focused tile (the flow box child has the focus) */
+static gboolean
+panel_tile_popup_menu (GtkWidget          *child,
+                       GimpExtensionPanel *panel)
+{
+  GtkWidget *tile = gtk_bin_get_child (GTK_BIN (child));
+
+  return tile && panel_popup_menu (child, NULL, panel,
+                                   g_object_get_data (G_OBJECT (tile),
+                                                      "extension-panel-menu"),
+                                   g_object_get_data (G_OBJECT (tile),
+                                                      "extension-panel-item-id"),
+                                   NULL, NULL);
+}
+
+/* Drop marker: where a dropped tile lands (it takes the target's place: after it
+ * when moving later, before it when moving earlier), drawn as a bar on that edge */
+static gint
+panel_tile_drop_side (GtkWidget      *tile,
+                      GdkDragContext *context)
+{
+  GtkWidget *source = gtk_drag_get_source_widget (context);
+  gint from, to;
+
+  if (!source || source == tile ||
+      gtk_widget_get_parent (gtk_widget_get_parent (source)) !=
+      gtk_widget_get_parent (gtk_widget_get_parent (tile)))
+    return 0;  /* itself, or not a tile of this strip */
+  from = gtk_flow_box_child_get_index (GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (source)));
+  to = gtk_flow_box_child_get_index (GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (tile)));
+  return from < to ? 1 : -1;
+}
+
+static void
+panel_tile_set_drop_side (GtkWidget *tile,
+                          gint       side)
+{
+  if (GPOINTER_TO_INT (g_object_get_data (G_OBJECT (tile), "extension-panel-drop-side"))
+      != side)
+    {
+      g_object_set_data (G_OBJECT (tile), "extension-panel-drop-side",
+                         GINT_TO_POINTER (side));
+      gtk_widget_queue_draw (tile);
+    }
+}
+
+static gboolean
+panel_tile_drag_motion (GtkWidget      *tile,
+                        GdkDragContext *context,
+                        gint            x,
+                        gint            y,
+                        guint           time)
+{
+  gint side = panel_tile_drop_side (tile, context);
+
+  panel_tile_set_drop_side (tile, side);
+  gdk_drag_status (context, side ? GDK_ACTION_MOVE : 0, time);
+  return TRUE;
+}
+
+static void
+panel_tile_drag_leave (GtkWidget      *tile,
+                       GdkDragContext *context,
+                       guint           time)
+{
+  panel_tile_set_drop_side (tile, 0);
+}
+
+static gboolean
+panel_tile_draw_marker (GtkWidget *tile,
+                        cairo_t   *cr)
+{
+  gint side = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (tile),
+                                                  "extension-panel-drop-side"));
+  GtkStyleContext *style = gtk_widget_get_style_context (tile);
+  GdkRGBA color = { 0.2, 0.5, 0.9, 1.0 };
+  gint width = gtk_widget_get_allocated_width (tile);
+  gint height = gtk_widget_get_allocated_height (tile);
+
+  if (!side)
+    return FALSE;
+  /* a selected tile is already in the selection colour: draw in its text colour */
+  gtk_style_context_lookup_color (
+    style,
+    gtk_flow_box_child_is_selected (GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (tile)))
+    ? "theme_selected_fg_color" : "theme_selected_bg_color", &color);
+  gdk_cairo_set_source_rgba (cr, &color);
+  cairo_rectangle (cr, side < 0 ? 0 : width - 4, 0, 4, height);
+  cairo_fill (cr);
+  return FALSE;
 }
 
 static void
@@ -628,6 +760,7 @@ panel_tile_drag_data_received (GtkWidget          *tile,
 
   if (length <= 0 || length > EXTENSION_PANEL_MAX_ROW_BYTES)
     return;
+  panel_tile_set_drop_side (tile, 0);
   dragged = g_strndup ((const gchar *) gtk_selection_data_get_data (data), length);
   if (strcmp (dragged, target) && g_utf8_validate (dragged, -1, NULL))
     {
@@ -668,6 +801,8 @@ panel_create_tree_content (GimpExtensionPanel *panel,
                     G_CALLBACK (panel_tree_row_activated), panel);
   g_signal_connect (tree, "button-press-event",
                     G_CALLBACK (panel_tree_button_press), panel);
+  g_signal_connect (tree, "popup-menu",
+                    G_CALLBACK (panel_tree_popup_menu), panel);
 
   for (i = 0; items[i]; i++)
     {
@@ -1188,8 +1323,15 @@ panel_create_content (GimpExtensionPanel *panel)
                                       g_strdup (reorder), g_free);
               gtk_drag_source_set (outer, GDK_BUTTON1_MASK, panel_tile_targets,
                                    G_N_ELEMENTS (panel_tile_targets), GDK_ACTION_MOVE);
-              gtk_drag_dest_set (outer, GTK_DEST_DEFAULT_ALL, panel_tile_targets,
+              /* Motion and highlight are ours: a bar on the landing edge */
+              gtk_drag_dest_set (outer, GTK_DEST_DEFAULT_DROP, panel_tile_targets,
                                  G_N_ELEMENTS (panel_tile_targets), GDK_ACTION_MOVE);
+              g_signal_connect (outer, "drag-motion",
+                                G_CALLBACK (panel_tile_drag_motion), NULL);
+              g_signal_connect (outer, "drag-leave",
+                                G_CALLBACK (panel_tile_drag_leave), NULL);
+              g_signal_connect_after (outer, "draw",
+                                      G_CALLBACK (panel_tile_draw_marker), NULL);
               if (pixbuf)
                 gtk_drag_source_set_icon_pixbuf (outer, pixbuf);
               else
@@ -1212,6 +1354,8 @@ panel_create_content (GimpExtensionPanel *panel)
                                   item_id, g_free);
           g_object_set_data (G_OBJECT (outer), "extension-panel-item-label", label);
           gtk_container_add (GTK_CONTAINER (flow), outer);
+          g_signal_connect (gtk_widget_get_parent (outer), "popup-menu",
+                            G_CALLBACK (panel_tile_popup_menu), panel);
           if (!strcmp (item_id, panel->selected_item))
             selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (outer));
           }
