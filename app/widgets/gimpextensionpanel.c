@@ -168,10 +168,10 @@ panel_content_has_item (const gchar *content,
 
       if (!strcmp (presentation, "tree"))
         {
-          if (g_str_has_prefix (label, "# "))
-            continue;
           while (*label == '\t')
             label++;
+          if (g_str_has_prefix (label, "# "))
+            continue;
         }
 
       if (!strcmp (label, item))
@@ -303,17 +303,18 @@ panel_create_content (GimpExtensionPanel *panel)
           GtkWidget *row = gtk_list_box_row_new ();
           const gchar *text = items[i];
           gint depth = 0;
-          gboolean heading = tree && g_str_has_prefix (text, "# ");
+          gboolean heading;
           GtkWidget *label;
 
-          if (heading)
-            text += 2;
-          else if (tree)
+          if (tree)
             while (*text == '\t')
               {
                 text++;
                 depth++;
               }
+          heading = tree && g_str_has_prefix (text, "# ");
+          if (heading)
+            text += 2;
 
           label = gtk_label_new (text);
           gtk_label_set_xalign (GTK_LABEL (label), 0.0);

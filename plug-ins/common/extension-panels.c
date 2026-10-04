@@ -152,7 +152,7 @@ extension_panels_action (GimpProcedure *procedure,
   gboolean success;
 
   if (!strcmp (identifier, "project"))
-    content = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t✓  Page 16\n\t●  Page 17\n\t○  Page 18\n# Assets\n\tCharacters\n\tLocations\n\tProps\n\tReferences";
+    content = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t✓  Page 16\n\t●  Page 17\n\t○  Page 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References";
   else if (!strcmp (identifier, "inspector"))
     content = "# Panel 04\n# Context\nPage\tPage 17\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
   else
@@ -209,7 +209,7 @@ extension_panels_select (GimpProcedure       *procedure,
     }
 
   project = g_strdup_printf (
-    "# Blades of Fate\n# Chapter 04\n\t%sPage 14\n\t%sPage 15\n\t%sPage 16\n\t%sPage 17\n\t%sPage 18\n# Assets\n\tCharacters\n\tLocations\n\tProps\n\tReferences",
+    "# Blades of Fate\n# Chapter 04\n\t%sPage 14\n\t%sPage 15\n\t%sPage 16\n\t%sPage 17\n\t%sPage 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References",
     page == 14 ? "●  " : "✓  ", page == 15 ? "●  " : "✓  ",
     page == 16 ? "●  " : "✓  ", page == 17 ? "●  " : "○  ",
     page == 18 ? "●  " : "○  ");
@@ -292,7 +292,7 @@ extension_panels_run (GimpProcedure *procedure,
   const gchar *actions[] = {
     ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
   };
-  const gchar *project = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t●  Page 16\n\t○  Page 17\n\t○  Page 18\n# Assets\n\tCharacters\n\tLocations\n\tProps\n\tReferences";
+  const gchar *project = "# Blades of Fate\n# Chapter 04\n\t✓  Page 14\n\t✓  Page 15\n\t●  Page 16\n\t○  Page 17\n\t○  Page 18\n# Assets\n\t# Characters\n\t# Locations\n\t# Props\n\t# References";
   const gchar *inspector = "# Panel 03\n# Context\nPage\tPage 16\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Continuity\nStatus\tClear";
   const gchar *filmstrip = "14  ✓\n15  ✓\n16  ●\n17  ○\n18  ○";
 
