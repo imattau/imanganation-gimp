@@ -976,8 +976,15 @@ gimp_extension_panel_update (Gimp        *gimp,
   if (dockable)
     {
       GtkWidget *old_content = panel->content_box;
+      GtkAdjustment *hadjustment = gtk_scrolled_window_get_hadjustment (
+        GTK_SCROLLED_WINDOW (old_content));
+      GtkAdjustment *vadjustment = gtk_scrolled_window_get_vadjustment (
+        GTK_SCROLLED_WINDOW (old_content));
+      gdouble hvalue = gtk_adjustment_get_value (hadjustment);
+      gdouble vvalue = gtk_adjustment_get_value (vadjustment);
       GtkWidget *new_content = panel_create_scrolled_content (panel);
       GtkWidget *parent = gtk_widget_get_parent (old_content);
+
       if (parent)
         {
           gtk_container_remove (GTK_CONTAINER (parent), old_content);
@@ -985,6 +992,12 @@ gimp_extension_panel_update (Gimp        *gimp,
           gtk_box_reorder_child (GTK_BOX (parent), new_content, 0);
           gtk_widget_show_all (new_content);
           panel->content_box = new_content;
+          gtk_adjustment_set_value (
+            gtk_scrolled_window_get_hadjustment (
+              GTK_SCROLLED_WINDOW (new_content)), hvalue);
+          gtk_adjustment_set_value (
+            gtk_scrolled_window_get_vadjustment (
+              GTK_SCROLLED_WINDOW (new_content)), vvalue);
         }
     }
   return TRUE;
