@@ -55,6 +55,13 @@ use *Preferences → Interface → Window Management → Reset Saved Window Posi
 return an existing profile to them. An extension dock the layout leaves out stays closed
 until opened from the plug-in (e.g. *Windows → Imanganation*).
 
+An uninstalled build finds none of its own plug-ins, so it cannot load PNG, JPEG or
+other image files. Point `GIMP_TESTING_PLUGINDIRS` at the build's C plug-in folders
+(`plug-ins/common` plus each `plug-ins/<name>` except `python` and `script-fu`) and at the
+profile's `plug-ins` folder, since the variable replaces the normal search path; set
+`GIMP_TESTING_PLUGINDIRS_BASENAME_IGNORES=extension-panels` to leave out the C sample
+docks. The sibling repository's `scripts/gimp-dev.sh` sets all of this up.
+
 Launch from the `imanganation-gimp` checkout so the relative path above resolves to
 the sibling main repository. GIMP must be built with Python plug-in support; its
 plug-in console or `--verbose` output reports plug-in discovery and import failures.
