@@ -26,9 +26,17 @@ are written back to this manifest. Asset labels are grouped into the four
 listed categories and shown in the Project panel. Selecting one displays a
 basic category view in the Inspector.
 
-The current format supports one sample project per GIMP user profile, page
-numbers from 1 to 999999, and up to 99 pages. Each asset category can contain
+The Project panel's **Open Project…** action opens another `.project` manifest.
+After a successful open, page additions and selection are saved back to that
+file. The **＋ Add Page** tree item appends a page to the current range.
+
+The plug-in starts with one sample project per GIMP user profile and can open
+one active project manifest at a time. Page numbers range from 1 to 999999,
+with up to 99 pages. Each asset category can contain
 up to 450 labels; labels are limited to 256 bytes and cannot contain tabs or
 newlines. The plug-in reads the manifest at startup, so stop GIMP before
 editing it by hand. This prototype stores project metadata only; it does not
 yet create page image files or associate existing GIMP images with pages.
+There is no project creation dialog yet; to start another project, make a copy
+of a manifest and edit its title, chapter, page range, and asset lists before
+opening it.

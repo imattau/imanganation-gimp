@@ -14,6 +14,9 @@
 #include <glib.h>
 
 #include "libgimp/gimp.h"
+#include "libgimp/gimpui.h"
+
+#include <gtk/gtk.h>
 
 
 #define EXTENSION_PROC "extension-imanganation-panels"
@@ -71,7 +74,12 @@ static gboolean         call_panel_proc (const gchar *name,
                                          const gchar *action,
                                          const gchar *item_action);
 static gboolean         project_state_load (GError **error);
+static gboolean         project_state_load_file (GFile   *file,
+                                                 GError **error);
 static gboolean         project_state_save (GError **error);
+static gboolean         project_state_open (GFile   *file,
+                                            GError **error);
+static void             project_state_clear (void);
 
 G_DEFINE_TYPE (ExtensionPanels, extension_panels, GIMP_TYPE_PLUG_IN)
 GIMP_MAIN (EXTENSION_PANELS_TYPE)
@@ -219,37 +227,22 @@ project_asset_list_is_valid (gchar **assets)
 }
 
 static gboolean
-project_state_load (GError **error)
+project_state_load_file (GFile   *file,
+                         GError **error)
 {
   GKeyFile *key_file = g_key_file_new ();
-  GFile *directory = gimp_directory_file ("imanganation", NULL);
   gchar *path;
   GError *local_error = NULL;
-  gboolean exists;
   gboolean success = FALSE;
 
-  if (!g_file_query_exists (directory, NULL) &&
-      !g_file_make_directory_with_parents (directory, NULL, error))
-    goto out;
-
-  project_file = gimp_directory_file ("imanganation", "blades-of-fate.project", NULL);
-  exists = g_file_query_exists (project_file, NULL);
-  if (!exists)
+  path = g_file_get_path (file);
+  if (!path)
     {
-      project_title = g_strdup ("Blades of Fate");
-      project_chapter = g_strdup ("Chapter 04");
-      project_first_page = 14;
-      current_page = 16;
-      sample_page_count = 5;
-      project_characters = g_strsplit ("Mei Lin\nXiu Ying", "\n", -1);
-      project_locations = g_strsplit ("Temple Courtyard", "\n", -1);
-      project_props = g_strsplit ("Moonblade", "\n", -1);
-      project_references = g_strsplit ("Visual guide", "\n", -1);
-      success = project_state_save (error);
-      goto out;
+      g_set_error_literal (&local_error, G_IO_ERROR,
+                           G_IO_ERROR_NOT_SUPPORTED,
+                           "Manga project manifests must be local files");
+      goto failed;
     }
-
-  path = g_file_get_path (project_file);
   success = g_key_file_load_from_file (key_file, path, G_KEY_FILE_NONE,
                                        &local_error);
   g_free (path);
@@ -308,6 +301,7 @@ project_state_load (GError **error)
     goto invalid;
 
   success = TRUE;
+  project_file = g_object_ref (file);
   goto out;
 
 invalid:
@@ -319,10 +313,82 @@ failed:
   g_propagate_error (error, local_error);
 
 out:
-  g_clear_object (&directory);
   g_clear_error (&local_error);
   g_key_file_unref (key_file);
   return success;
+}
+
+static gboolean
+project_state_load (GError **error)
+{
+  GFile *directory = gimp_directory_file ("imanganation", NULL);
+  GFile *file;
+  gboolean success;
+
+  if (!g_file_query_exists (directory, NULL) &&
+      !g_file_make_directory_with_parents (directory, NULL, error))
+    {
+      g_object_unref (directory);
+      return FALSE;
+    }
+  g_object_unref (directory);
+
+  file = gimp_directory_file ("imanganation", "blades-of-fate.project", NULL);
+  if (g_file_query_exists (file, NULL))
+    {
+      success = project_state_load_file (file, error);
+    }
+  else
+    {
+      project_title = g_strdup ("Blades of Fate");
+      project_chapter = g_strdup ("Chapter 04");
+      project_first_page = 14;
+      current_page = 16;
+      sample_page_count = 5;
+      project_characters = g_strsplit ("Mei Lin\nXiu Ying", "\n", -1);
+      project_locations = g_strsplit ("Temple Courtyard", "\n", -1);
+      project_props = g_strsplit ("Moonblade", "\n", -1);
+      project_references = g_strsplit ("Visual guide", "\n", -1);
+      project_file = g_object_ref (file);
+      success = project_state_save (error);
+    }
+
+  g_object_unref (file);
+  return success;
+}
+
+static void
+project_state_clear (void)
+{
+  g_clear_pointer (&project_title, g_free);
+  g_clear_pointer (&project_chapter, g_free);
+  g_clear_pointer (&project_characters, g_strfreev);
+  g_clear_pointer (&project_locations, g_strfreev);
+  g_clear_pointer (&project_props, g_strfreev);
+  g_clear_pointer (&project_references, g_strfreev);
+  g_clear_object (&project_file);
+}
+
+static gboolean
+project_state_open (GFile   *file,
+                    GError **error)
+{
+  GFile *previous_file = g_object_ref (project_file);
+  GError *local_error = NULL;
+
+  project_state_clear ();
+  if (project_state_load_file (file, &local_error))
+    {
+      g_object_unref (previous_file);
+      return TRUE;
+    }
+
+  project_state_clear ();
+  if (!project_state_load_file (previous_file, NULL))
+    g_warning ("Could not restore the previous project after an open error");
+  g_object_unref (previous_file);
+  g_propagate_error (error, local_error);
+  return FALSE;
 }
 
 static gchar *
@@ -354,6 +420,7 @@ project_content_new (void)
   g_string_append (content, "\n\t\t# References");
   for (page = 0; project_references[page]; page++)
     g_string_append_printf (content, "\n\t\t\t%s", project_references[page]);
+  g_string_append (content, "\n\t＋ Add Page");
 
   return g_string_free (content, FALSE);
 }
@@ -456,6 +523,68 @@ update_page_panels (gint page)
   return success;
 }
 
+static gboolean
+project_add_page (void)
+{
+  gint previous_count = sample_page_count;
+
+  if (sample_page_count < 99)
+    sample_page_count++;
+  if (!project_state_save (NULL))
+    {
+      sample_page_count = previous_count;
+      return FALSE;
+    }
+
+  return update_page_panels (project_first_page + sample_page_count - 1);
+}
+
+static gboolean
+project_open_dialog (void)
+{
+  GtkFileChooserNative *dialog;
+  GtkFileFilter *filter;
+  GFile *file;
+  GError *error = NULL;
+  gint response;
+  gboolean success = TRUE;
+
+  gimp_ui_init ("imanganation-project");
+  dialog = gtk_file_chooser_native_new ("Open Manga Project", NULL,
+                                        GTK_FILE_CHOOSER_ACTION_OPEN,
+                                        "_Open", "_Cancel");
+  filter = gtk_file_filter_new ();
+  gtk_file_filter_set_name (filter, "Imanganation project (*.project)");
+  gtk_file_filter_add_pattern (filter, "*.project");
+  gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (dialog), filter);
+
+  response = gtk_native_dialog_run (GTK_NATIVE_DIALOG (dialog));
+  if (response == GTK_RESPONSE_ACCEPT)
+    {
+      file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER (dialog));
+      if (file)
+        {
+          success = project_state_open (file, &error);
+          if (success)
+            success = update_page_panels (current_page);
+          g_object_unref (file);
+        }
+      else
+        {
+          success = FALSE;
+        }
+
+      if (error)
+        {
+          gimp_message (error->message);
+          g_clear_error (&error);
+        }
+    }
+
+  g_object_unref (dialog);
+  return success;
+}
+
 static GimpValueArray *
 extension_panels_action (GimpProcedure *procedure,
                          GimpProcedureConfig *config,
@@ -465,19 +594,9 @@ extension_panels_action (GimpProcedure *procedure,
   gchar *content;
   gboolean success;
 
-  if (!strcmp (identifier, "project"))
+  if (!strcmp (identifier, "open-project"))
     {
-      gint previous_count = sample_page_count;
-
-      if (sample_page_count < 99)
-        sample_page_count++;
-      if (!project_state_save (NULL))
-        {
-          sample_page_count = previous_count;
-          return gimp_procedure_new_return_values (
-            procedure, GIMP_PDB_EXECUTION_ERROR, NULL);
-        }
-      success = update_page_panels (project_first_page + sample_page_count - 1);
+      success = project_open_dialog ();
       return gimp_procedure_new_return_values (
         procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
     }
@@ -518,6 +637,14 @@ extension_panels_select (GimpProcedure       *procedure,
   gboolean success;
 
   g_object_get (config, "item", &item, NULL);
+  if (!strcmp (item, "＋ Add Page"))
+    {
+      success = project_add_page ();
+      g_free ((gchar *) item);
+      return gimp_procedure_new_return_values (
+        procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
+
   inspector = asset_inspector_content_new (item);
 
   if (inspector)
@@ -608,7 +735,8 @@ extension_panels_run (GimpProcedure *procedure,
   GMainLoop *loop = g_main_loop_new (NULL, FALSE);
   GError *error = NULL;
   const gchar *actions[] = {
-    ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
+    ACTION_PREFIX "open-project", ACTION_PREFIX "inspector",
+    ACTION_PREFIX "filmstrip"
   };
   gboolean project_registered;
   gboolean inspector_registered;
@@ -637,7 +765,7 @@ extension_panels_run (GimpProcedure *procedure,
   project_selection = g_strdup_printf ("●  Page %d", current_page);
   filmstrip_selection = g_strdup_printf ("%d  ●", current_page);
 
-  install_action (plug_in, "project");
+  install_action (plug_in, "open-project");
   install_action (plug_in, "inspector");
   install_action (plug_in, "filmstrip");
   install_select_action (plug_in, "project");
@@ -645,7 +773,7 @@ extension_panels_run (GimpProcedure *procedure,
 
   project_registered = call_panel_proc (
     "gimp-extension-panel-register", "project", project,
-    "tree", project_selection, "Project", "Add Page", actions[0],
+    "tree", project_selection, "Project", "Open Project…", actions[0],
     SELECT_PREFIX "project");
   inspector_registered = call_panel_proc (
     "gimp-extension-panel-register", "inspector", inspector,
