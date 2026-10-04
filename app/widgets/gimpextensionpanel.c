@@ -100,6 +100,9 @@ static gint next_panel_view_size = 10000;
 
 static void panel_register_entry (GimpExtensionPanel *panel);
 static void panel_label_wrap     (GtkWidget          *label);
+static void panel_defer_run      (GimpExtensionPanel *panel,
+                                  const gchar        *procedure,
+                                  const gchar        *item);
 
 static gboolean
 panel_action_is_valid (Gimp        *gimp,
@@ -479,12 +482,92 @@ panel_tile_activated (GtkFlowBox         *flow,
     panel_item_activated (panel, frame);
 }
 
+/* Tree rows (and headings) may end with "\t!proc:Label|proc2:Label": right-click
+ * opens a menu of those items, each running its one-string procedure of the same
+ * plug-in with the row's id (an empty string for a heading). */
+static void
+panel_menu_item_activate (GtkMenuItem        *item,
+                          GimpExtensionPanel *panel)
+{
+  panel_defer_run (panel,
+                   g_object_get_data (G_OBJECT (item), "extension-panel-procedure"),
+                   g_object_get_data (G_OBJECT (item), "extension-panel-item-id"));
+}
+
+static gboolean
+panel_menu_destroy_idle (gpointer menu)
+{
+  gtk_widget_destroy (menu);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+panel_menu_deactivate (GtkMenuShell *menu)
+{
+  /* after the chosen item's "activate" */
+  g_idle_add (panel_menu_destroy_idle, menu);
+}
+
+static gboolean
+panel_tree_button_press (GtkWidget          *tree,
+                         GdkEventButton     *event,
+                         GimpExtensionPanel *panel)
+{
+  GtkTreeModel *model = gtk_tree_view_get_model (GTK_TREE_VIEW (tree));
+  GtkTreePath *path = NULL;
+  GtkTreeIter iter;
+  gchar *row_id = NULL;
+  gchar *menu_spec = NULL;
+  gboolean handled = FALSE;
+
+  if (!gdk_event_triggers_context_menu ((GdkEvent *) event) ||
+      !gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW (tree), event->x, event->y,
+                                      &path, NULL, NULL, NULL))
+    return FALSE;
+  gtk_tree_model_get_iter (model, &iter, path);
+  gtk_tree_path_free (path);
+  gtk_tree_model_get (model, &iter, 2, &row_id, 3, &menu_spec, -1);
+  if (menu_spec && *menu_spec)
+    {
+      GtkWidget *menu = gtk_menu_new ();
+      gchar **entries = g_strsplit (menu_spec, "|", -1);
+      gint i;
+
+      for (i = 0; entries[i]; i++)
+        {
+          gchar *colon = strchr (entries[i], ':');
+          GtkWidget *item;
+
+          if (!colon || colon == entries[i] || !colon[1])
+            continue;
+          *colon = '\0';
+          item = gtk_menu_item_new_with_label (colon + 1);
+          g_object_set_data_full (G_OBJECT (item), "extension-panel-procedure",
+                                  g_strdup (entries[i]), g_free);
+          g_object_set_data_full (G_OBJECT (item), "extension-panel-item-id",
+                                  g_strdup (row_id ? row_id : ""), g_free);
+          g_signal_connect (item, "activate",
+                            G_CALLBACK (panel_menu_item_activate), panel);
+          gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
+        }
+      g_strfreev (entries);
+      gtk_menu_attach_to_widget (GTK_MENU (menu), tree, NULL);
+      g_signal_connect (menu, "deactivate", G_CALLBACK (panel_menu_deactivate), NULL);
+      gtk_widget_show_all (menu);
+      gtk_menu_popup_at_pointer (GTK_MENU (menu), (GdkEvent *) event);
+      handled = TRUE;
+    }
+  g_free (row_id);
+  g_free (menu_spec);
+  return handled;
+}
+
 static GtkWidget *
 panel_create_tree_content (GimpExtensionPanel *panel,
                            gchar             **items)
 {
-  GtkTreeStore *store = gtk_tree_store_new (3, G_TYPE_STRING, G_TYPE_BOOLEAN,
-                                            G_TYPE_STRING);
+  GtkTreeStore *store = gtk_tree_store_new (4, G_TYPE_STRING, G_TYPE_BOOLEAN,
+                                            G_TYPE_STRING, G_TYPE_STRING);
   GtkWidget *tree = gtk_tree_view_new_with_model (GTK_TREE_MODEL (store));
   GtkCellRenderer *renderer = gtk_cell_renderer_text_new ();
   GtkTreeViewColumn *column;
@@ -504,6 +587,8 @@ panel_create_tree_content (GimpExtensionPanel *panel,
   gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
   g_signal_connect (tree, "row-activated",
                     G_CALLBACK (panel_tree_row_activated), panel);
+  g_signal_connect (tree, "button-press-event",
+                    G_CALLBACK (panel_tree_button_press), panel);
 
   for (i = 0; items[i]; i++)
     {
@@ -511,6 +596,8 @@ panel_create_tree_content (GimpExtensionPanel *panel,
       gint depth = 0;
       gboolean heading;
       gchar *item_id = NULL;
+      gchar *menu_spec = NULL;
+      gchar *menu_mark;
       GtkTreeIter iter;
       GtkTreeIter *parent;
       gint level;
@@ -523,6 +610,13 @@ panel_create_tree_content (GimpExtensionPanel *panel,
       depth = MIN (depth, G_N_ELEMENTS (parents) - 1);
       while (depth > 0 && !parent_valid[depth - 1])
         depth--;
+
+      menu_mark = strstr (text, "\t!");
+      if (menu_mark)
+        {
+          menu_spec = g_strdup (menu_mark + 2);
+          *menu_mark = '\0';  /* items[] is ours: end the row before its menu */
+        }
 
       heading = g_str_has_prefix (text, "# ");
       if (heading)
@@ -546,8 +640,10 @@ panel_create_tree_content (GimpExtensionPanel *panel,
                           0, text,
                           1, heading,
                           2, item_id,
+                          3, menu_spec,
                           -1);
       g_free (item_id);
+      g_free (menu_spec);
 
       for (level = depth + 1; level < G_N_ELEMENTS (parent_valid); level++)
         parent_valid[level] = FALSE;

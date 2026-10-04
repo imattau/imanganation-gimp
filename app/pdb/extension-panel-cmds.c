@@ -110,7 +110,10 @@ extension_panel_procs_init (GimpPDB *pdb)
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("content", "content",
                                                        "Host-rendered text. Tree rows use leading tabs for depth and '# ' "
-                                                       "for non-activating headings. Activatable list, tile and tree rows "
+                                                       "for non-activating headings; a tree row or heading may end with "
+                                                       "'<TAB>!procedure:Label|procedure:Label', a right-click menu whose "
+                                                       "items run that one-string procedure of the same plug-in with the "
+                                                       "row id (empty for a heading). Activatable list, tile and tree rows "
                                                        "may use id<TAB>label; tile rows may add a third tab-separated "
                                                        "absolute PNG preview path. Legacy rows use their label as the id. "
                                                        "Properties use '# ' section headings and tab-separated name/value "
