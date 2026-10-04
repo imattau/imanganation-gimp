@@ -20,6 +20,9 @@
 #define ACTION_PREFIX  "extension-imanganation-panels-action-"
 #define SELECT_PREFIX  "extension-imanganation-panels-select-"
 
+static gint current_page = 16;
+static gint sample_page_count = 5;
+
 typedef struct _ExtensionPanels      ExtensionPanels;
 typedef struct _ExtensionPanelsClass ExtensionPanelsClass;
 
@@ -142,27 +145,140 @@ call_panel_proc (const gchar *name,
   return status == GIMP_PDB_SUCCESS;
 }
 
+static gchar *
+project_content_new (void)
+{
+  GString *content = g_string_new (
+    "# Blades of Fate\n\t# Chapter 04");
+  gint page;
+
+  for (page = 14; page < 14 + sample_page_count; page++)
+    {
+      const gchar *status = page < current_page ? "✓  " :
+                            page == current_page ? "●  " : "○  ";
+      g_string_append_printf (content, "\n\t\t%sPage %d", status, page);
+    }
+
+  g_string_append (content,
+                   "\n\t# Assets"
+                   "\n\t\t# Characters"
+                   "\n\t\t\tMei Lin"
+                   "\n\t\t\tXiu Ying"
+                   "\n\t\t# Locations"
+                   "\n\t\t\tTemple Courtyard"
+                   "\n\t\t# Props"
+                   "\n\t\t\tMoonblade"
+                   "\n\t\t# References"
+                   "\n\t\t\tVisual guide");
+
+  return g_string_free (content, FALSE);
+}
+
+static gchar *
+filmstrip_content_new (void)
+{
+  GString *content = g_string_new (NULL);
+  gint page;
+
+  for (page = 14; page < 14 + sample_page_count; page++)
+    {
+      const gchar *marker = page < current_page ? "  ✓" :
+                            page == current_page ? "  ●" : "  ○";
+      if (page > 14)
+        g_string_append_c (content, '\n');
+      g_string_append_printf (content, "%d%s", page, marker);
+    }
+
+  return g_string_free (content, FALSE);
+}
+
+static gchar *
+inspector_content_new (gint page)
+{
+  return g_strdup_printf (
+    "# Panel 03\n# Context\nPage\tPage %02d\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear",
+    page);
+}
+
+static gboolean
+update_page_panels (gint page)
+{
+  gchar *project;
+  gchar *filmstrip;
+  gchar *inspector;
+  gchar *project_selection;
+  gchar *filmstrip_selection;
+  gboolean project_updated;
+  gboolean inspector_updated;
+  gboolean filmstrip_updated;
+  gboolean success;
+
+  if (page < 14 || page >= 14 + sample_page_count)
+    return FALSE;
+
+  current_page = page;
+  project = project_content_new ();
+  filmstrip = filmstrip_content_new ();
+  inspector = inspector_content_new (page);
+  project_selection = g_strdup_printf ("●  Page %d", page);
+  filmstrip_selection = g_strdup_printf ("%d  ●", page);
+
+  project_updated = call_panel_proc ("gimp-extension-panel-update", "project",
+                                     project, NULL, project_selection,
+                                     NULL, NULL, NULL, NULL);
+  inspector_updated = call_panel_proc ("gimp-extension-panel-update", "inspector",
+                                       inspector, NULL, "",
+                                       NULL, NULL, NULL, NULL);
+  filmstrip_updated = call_panel_proc ("gimp-extension-panel-update", "filmstrip",
+                                       filmstrip, NULL, filmstrip_selection,
+                                       NULL, NULL, NULL, NULL);
+  success = project_updated && inspector_updated && filmstrip_updated;
+
+  g_free (project);
+  g_free (filmstrip);
+  g_free (inspector);
+  g_free (project_selection);
+  g_free (filmstrip_selection);
+  return success;
+}
+
 static GimpValueArray *
 extension_panels_action (GimpProcedure *procedure,
                          GimpProcedureConfig *config,
                          gpointer run_data)
 {
   const gchar *identifier = run_data;
-  const gchar *content;
+  gchar *content;
   gboolean success;
 
   if (!strcmp (identifier, "project"))
-    content = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t✓  Page 16\n\t\t●  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
-  else if (!strcmp (identifier, "inspector"))
-    content = "# Panel 04\n# Context\nPage\tPage 17\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear";
-  else
-    content = "14  ✓\n15  ✓\n16  ✓\n17  ●\n18  ○";
+    {
+      if (sample_page_count < 99)
+        sample_page_count++;
+      success = update_page_panels (14 + sample_page_count - 1);
+      return gimp_procedure_new_return_values (
+        procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
 
-  success = call_panel_proc ("gimp-extension-panel-update",
-                             identifier, content, NULL,
-                             !strcmp (identifier, "project") ? "●  Page 17" :
-                             (!strcmp (identifier, "filmstrip") ? "17  ●" : ""),
-                             NULL, NULL, NULL, NULL);
+  if (!strcmp (identifier, "filmstrip"))
+    {
+      gint last_page = 14 + sample_page_count - 1;
+      gint next_page = current_page < last_page ? current_page + 1 : 14;
+
+      success = update_page_panels (next_page);
+      return gimp_procedure_new_return_values (
+        procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
+    }
+
+  if (!strcmp (identifier, "inspector"))
+    content = inspector_content_new (current_page);
+  else
+    content = NULL;
+
+  success = content && call_panel_proc ("gimp-extension-panel-update",
+                                        identifier, content, NULL, "",
+                                        NULL, NULL, NULL, NULL);
+  g_free (content);
   return gimp_procedure_new_return_values (procedure,
                                             success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR,
                                             NULL);
@@ -176,11 +292,7 @@ extension_panels_select (GimpProcedure       *procedure,
   const gchar *item;
   const gchar *digits;
   gint page;
-  gchar *project;
-  gchar *filmstrip;
   gchar *inspector;
-  gchar *project_selection;
-  gchar *filmstrip_selection;
   gboolean success;
 
   g_object_get (config, "item", &item, NULL);
@@ -234,45 +346,14 @@ extension_panels_select (GimpProcedure       *procedure,
                                                 GIMP_PDB_SUCCESS, NULL);
     }
   page = *digits ? (gint) g_ascii_strtoll (digits, NULL, 10) : 0;
-  if (page < 14 || page > 18)
+  if (page < 14 || page >= 14 + sample_page_count)
     {
       g_free ((gchar *) item);
       return gimp_procedure_new_return_values (procedure,
                                                 GIMP_PDB_SUCCESS, NULL);
     }
 
-  project = g_strdup_printf (
-    "# Blades of Fate\n\t# Chapter 04\n\t\t%sPage 14\n\t\t%sPage 15\n\t\t%sPage 16\n\t\t%sPage 17\n\t\t%sPage 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide",
-    page == 14 ? "●  " : "✓  ", page == 15 ? "●  " : "✓  ",
-    page == 16 ? "●  " : "✓  ", page == 17 ? "●  " : "○  ",
-    page == 18 ? "●  " : "○  ");
-  filmstrip = g_strdup_printf (
-    "%s14%s\n%s15%s\n%s16%s\n%s17%s\n%s18%s",
-    page == 14 ? "● " : "", page == 14 ? "" : "  ✓",
-    page == 15 ? "● " : "", page == 15 ? "" : "  ✓",
-    page == 16 ? "● " : "", page == 16 ? "" : "  ✓",
-    page == 17 ? "● " : "", page == 17 ? "" : "  ○",
-    page == 18 ? "● " : "", page == 18 ? "" : "  ○");
-  inspector = g_strdup_printf (
-    "# Panel 03\n# Context\nPage\tPage %02d\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear",
-    page);
-  project_selection = g_strdup_printf ("●  Page %d", page);
-  filmstrip_selection = g_strdup_printf ("● %d", page);
-
-  success = call_panel_proc ("gimp-extension-panel-update", "project",
-                             project, NULL, project_selection,
-                             NULL, NULL, NULL, NULL) &&
-            call_panel_proc ("gimp-extension-panel-update", "inspector",
-                             inspector, NULL, "",
-                             NULL, NULL, NULL, NULL) &&
-            call_panel_proc ("gimp-extension-panel-update", "filmstrip",
-                             filmstrip, NULL, filmstrip_selection,
-                             NULL, NULL, NULL, NULL);
-  g_free (project);
-  g_free (filmstrip);
-  g_free (inspector);
-  g_free (project_selection);
-  g_free (filmstrip_selection);
+  success = update_page_panels (page);
   g_free ((gchar *) item);
   return gimp_procedure_new_return_values (
     procedure, success ? GIMP_PDB_SUCCESS : GIMP_PDB_EXECUTION_ERROR, NULL);
@@ -325,9 +406,9 @@ extension_panels_run (GimpProcedure *procedure,
   const gchar *actions[] = {
     ACTION_PREFIX "project", ACTION_PREFIX "inspector", ACTION_PREFIX "filmstrip"
   };
-  const gchar *project = "# Blades of Fate\n\t# Chapter 04\n\t\t✓  Page 14\n\t\t✓  Page 15\n\t\t●  Page 16\n\t\t○  Page 17\n\t\t○  Page 18\n\t# Assets\n\t\t# Characters\n\t\t\tMei Lin\n\t\t\tXiu Ying\n\t\t# Locations\n\t\t\tTemple Courtyard\n\t\t# Props\n\t\t\tMoonblade\n\t\t# References\n\t\t\tVisual guide";
-  const gchar *inspector = "# Panel 03\n# Context\nPage\tPage 16\n# Characters\nLead\tMei Lin\nPartner\tXiu Ying\n# Location\nSetting\tTemple Courtyard\n# Shot\nFraming\tMedium\nAngle\tLow\n# Panel objects\nMei Lin\tCharacter\nXiu Ying\tCharacter\nCourtyard\tBackground\nSpeed lines\tEffects\nDialogue\tText\n# Continuity\nStatus\tClear";
-  const gchar *filmstrip = "14  ✓\n15  ✓\n16  ●\n17  ○\n18  ○";
+  gchar *project = project_content_new ();
+  gchar *inspector = inspector_content_new (current_page);
+  gchar *filmstrip = filmstrip_content_new ();
 
   install_action (plug_in, "project");
   install_action (plug_in, "inspector");
@@ -336,13 +417,17 @@ extension_panels_run (GimpProcedure *procedure,
   install_select_action (plug_in, "filmstrip");
 
   call_panel_proc ("gimp-extension-panel-register", "project", project,
-                   "tree", "●  Page 16", "Project", "Open page", actions[0],
+                   "tree", "●  Page 16", "Project", "Add Page", actions[0],
                    SELECT_PREFIX "project");
   call_panel_proc ("gimp-extension-panel-register", "inspector", inspector,
                    "properties", "", "Inspector", "Refresh", actions[1], NULL);
   call_panel_proc ("gimp-extension-panel-register", "filmstrip", filmstrip,
                    "tiles", "16  ●", "Page Filmstrip", "Next page", actions[2],
                    SELECT_PREFIX "filmstrip");
+
+  g_free (project);
+  g_free (inspector);
+  g_free (filmstrip);
 
   gimp_procedure_persistent_ready (procedure);
   gimp_plug_in_persistent_enable (plug_in);
