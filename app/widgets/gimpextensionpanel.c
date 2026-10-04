@@ -34,6 +34,7 @@
 
 #include "gimpextensionpanel.h"
 #include "gimpdialogfactory.h"
+#include "gimp-intl.h"
 #include "gimpwindowstrategy.h"
 
 
@@ -117,7 +118,17 @@ panel_run_procedure (GimpExtensionPanel *panel,
           gimp->pdb, gimp_get_user_context (gimp), NULL, &error,
           procedure_name, G_TYPE_NONE);
       if (return_values)
-        gimp_value_array_unref (return_values);
+        {
+          GimpPDBStatusType status =
+            g_value_get_enum (gimp_value_array_index (return_values, 0));
+
+          gimp_value_array_unref (return_values);
+
+          if (!error && (status == GIMP_PDB_CALLING_ERROR ||
+                         status == GIMP_PDB_EXECUTION_ERROR))
+            gimp_message_literal (gimp, NULL, GIMP_MESSAGE_ERROR,
+                                  _("The extension panel action failed."));
+        }
     }
 
   if (error)
