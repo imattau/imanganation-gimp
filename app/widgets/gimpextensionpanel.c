@@ -51,6 +51,7 @@ typedef struct
   gchar       *action_label;
   gchar       *action_procedure;
   gchar       *item_action_procedure;
+  GHashTable  *collapsed_tree_paths;
   gint         factory_view_size;
   GtkWidget   *content_box;
   GtkWidget   *action_button;
@@ -201,6 +202,62 @@ panel_tree_cell_data (GtkTreeViewColumn *column,
                 NULL);
 }
 
+static gchar *
+panel_tree_path_key (GtkTreePath *path)
+{
+  return gtk_tree_path_to_string (path);
+}
+
+static void
+panel_tree_state_changed (GtkTreeView        *tree_view,
+                          GtkTreeIter        *iter,
+                          GtkTreePath        *path,
+                          GimpExtensionPanel *panel)
+{
+  gchar *key = panel_tree_path_key (path);
+
+  if (gtk_tree_view_row_expanded (tree_view, path))
+    g_hash_table_remove (panel->collapsed_tree_paths, key);
+  else
+    g_hash_table_add (panel->collapsed_tree_paths, g_strdup (key));
+
+  g_free (key);
+}
+
+static void
+panel_tree_restore_collapsed (GimpExtensionPanel *panel,
+                              GtkTreeView        *tree_view,
+                              GtkTreeModel       *model,
+                              GtkTreeIter        *parent)
+{
+  GtkTreeIter iter;
+  gboolean    valid;
+
+  valid = parent ? gtk_tree_model_iter_children (model, &iter, parent) :
+                   gtk_tree_model_get_iter_first (model, &iter);
+
+  while (valid)
+    {
+      gboolean heading;
+
+      gtk_tree_model_get (model, &iter, 1, &heading, -1);
+      if (heading)
+        {
+          GtkTreePath *path = gtk_tree_model_get_path (model, &iter);
+          gchar *key = panel_tree_path_key (path);
+
+          if (g_hash_table_contains (panel->collapsed_tree_paths, key))
+            gtk_tree_view_collapse_row (tree_view, path);
+          g_free (key);
+          gtk_tree_path_free (path);
+
+          panel_tree_restore_collapsed (panel, tree_view, model, &iter);
+        }
+
+      valid = gtk_tree_model_iter_next (model, &iter);
+    }
+}
+
 static gboolean
 panel_content_has_item (const gchar *content,
                         const gchar *presentation,
@@ -307,11 +364,36 @@ panel_create_tree_content (GimpExtensionPanel *panel,
     }
 
   gtk_tree_view_expand_all (GTK_TREE_VIEW (tree));
+  panel_tree_restore_collapsed (panel, GTK_TREE_VIEW (tree),
+                                GTK_TREE_MODEL (store), NULL);
+  g_signal_connect (tree, "row-expanded",
+                    G_CALLBACK (panel_tree_state_changed), panel);
+  g_signal_connect (tree, "row-collapsed",
+                    G_CALLBACK (panel_tree_state_changed), panel);
   if (selected_path)
     {
-      gtk_tree_view_set_cursor (GTK_TREE_VIEW (tree), selected_path, NULL, FALSE);
-      gtk_tree_view_scroll_to_cell (GTK_TREE_VIEW (tree), selected_path, NULL,
-                                    FALSE, 0.0, 0.0);
+      GtkTreePath *ancestor = gtk_tree_path_copy (selected_path);
+      gboolean hidden = FALSE;
+
+      while (gtk_tree_path_up (ancestor))
+        {
+          gchar *key = panel_tree_path_key (ancestor);
+          if (g_hash_table_contains (panel->collapsed_tree_paths, key))
+            hidden = TRUE;
+          g_free (key);
+        }
+
+      if (hidden)
+        gtk_tree_selection_select_path (
+          gtk_tree_view_get_selection (GTK_TREE_VIEW (tree)), selected_path);
+      else
+        {
+          gtk_tree_view_set_cursor (GTK_TREE_VIEW (tree), selected_path,
+                                    NULL, FALSE);
+          gtk_tree_view_scroll_to_cell (GTK_TREE_VIEW (tree), selected_path,
+                                        NULL, FALSE, 0.0, 0.0);
+        }
+      gtk_tree_path_free (ancestor);
       gtk_tree_path_free (selected_path);
     }
 
@@ -531,6 +613,7 @@ panel_free (GimpExtensionPanel *panel)
   g_free (panel->action_label);
   g_free (panel->action_procedure);
   g_free (panel->item_action_procedure);
+  g_hash_table_unref (panel->collapsed_tree_paths);
   g_free (panel);
 }
 
@@ -700,6 +783,8 @@ gimp_extension_panel_register (Gimp        *gimp,
       panel->factory_identifier = g_strdup_printf ("extension-panel-%s::%s",
                                                    owner, identifier);
       panel->factory_view_size = next_panel_view_size++;
+      panel->collapsed_tree_paths = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                           g_free, NULL);
       key = panel_key (owner, identifier);
       g_hash_table_insert (panels, key, panel);
     }
