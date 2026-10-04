@@ -46,11 +46,14 @@ chmod +x "$GIMP3_DIRECTORY/plug-ins/imanganation/imanganation.py"
 /tmp/imanganation-gimp-build/app/gimp-3.3
 ```
 
-`GIMP3_SYSCONFDIR` makes the uninstalled build read the fork's `etc/sessionrc`, the
-default workspace: no stock GIMP docks, only the Imanganation docks the plug-in adds
-(stock dialogs stay under *Windows → Dockable Dialogs*). It applies only to a profile
-without its own `sessionrc`; delete that file, or use *Preferences → Interface → Window
-Management → Reset Saved Window Positions*, to return an existing profile to it.
+`GIMP3_SYSCONFDIR` makes the uninstalled build read the fork's defaults: `etc/sessionrc`
+(the workspace layout: Project navigator and toolbox left, Context with Script and Page
+Filmstrip tabs above Layers right) and `etc/toolrc` (a compact toolbox: Select, Move,
+Transform, Brush, Erase, Fill, Text, Colour picker; other tools stay in the Tools menu).
+They apply only to a profile without its own `sessionrc`/`toolrc`; delete those files, or
+use *Preferences → Interface → Window Management → Reset Saved Window Positions*, to
+return an existing profile to them. An extension dock the layout leaves out stays closed
+until opened from the plug-in (e.g. *Windows → Imanganation*).
 
 Launch from the `imanganation-gimp` checkout so the relative path above resolves to
 the sibling main repository. GIMP must be built with Python plug-in support; its

@@ -91,6 +91,7 @@ static GimpDialogFactory *panel_factory;
 static gint next_panel_view_size = 10000;
 
 static void panel_register_entry (GimpExtensionPanel *panel);
+static void panel_label_wrap     (GtkWidget          *label);
 
 static gboolean
 panel_action_is_valid (Gimp        *gimp,
@@ -478,12 +479,15 @@ panel_create_tree_content (GimpExtensionPanel *panel,
                                             G_TYPE_STRING);
   GtkWidget *tree = gtk_tree_view_new_with_model (GTK_TREE_MODEL (store));
   GtkCellRenderer *renderer = gtk_cell_renderer_text_new ();
-  GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes (
-    "", renderer, "text", 0, NULL);
+  GtkTreeViewColumn *column;
   GtkTreePath *selected_path = NULL;
   GtkTreeIter parents[64];
   gboolean    parent_valid[64] = { FALSE };
   gint i;
+
+  /* Ellipsize long rows so the tree never forces its dock wider */
+  g_object_set (renderer, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+  column = gtk_tree_view_column_new_with_attributes ("", renderer, "text", 0, NULL);
 
   gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (tree), FALSE);
   gtk_tree_view_set_activate_on_single_click (GTK_TREE_VIEW (tree), TRUE);
@@ -611,6 +615,7 @@ panel_create_content (GimpExtensionPanel *panel)
             {
               label = gtk_label_new (items[i] + 2);
               gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+              panel_label_wrap (label);
               gtk_style_context_add_class (gtk_widget_get_style_context (label),
                                            "heading");
               gtk_widget_set_margin_top (label, row ? 8 : 2);
@@ -629,7 +634,7 @@ panel_create_content (GimpExtensionPanel *panel)
               gtk_label_set_text (GTK_LABEL (value), separator + 1);
               gtk_label_set_xalign (GTK_LABEL (name), 0.0);
               gtk_label_set_xalign (GTK_LABEL (value), 0.0);
-              gtk_label_set_line_wrap (GTK_LABEL (value), TRUE);
+              panel_label_wrap (value);
               gtk_style_context_add_class (gtk_widget_get_style_context (name),
                                            GTK_STYLE_CLASS_DIM_LABEL);
               gtk_grid_attach (GTK_GRID (grid), name, 0, row, 1, 1);
@@ -639,6 +644,8 @@ panel_create_content (GimpExtensionPanel *panel)
             {
               label = gtk_label_new (items[i]);
               gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+              panel_label_wrap (label);
+              gtk_widget_set_hexpand (label, TRUE);
               gtk_grid_attach (GTK_GRID (grid), label, 0, row++, 2, 1);
             }
       }
@@ -747,6 +754,7 @@ panel_create_content (GimpExtensionPanel *panel)
             item_id = g_strdup (text);
           label = gtk_label_new (text);
           gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+          gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
           gtk_widget_set_margin_start (label, 8);
           gtk_widget_set_margin_end (label, 8);
           gtk_widget_set_margin_top (label, 5);
@@ -772,8 +780,11 @@ panel_create_scrolled_content (GimpExtensionPanel *panel)
   GtkWidget *scrolled = gtk_scrolled_window_new (NULL, NULL);
   GtkWidget *content = panel_create_content (panel);
 
+  /* Text rows wrap and tree/list rows ellipsize to the dock width; horizontal
+   * scrolling is the fallback, so content can never set the dock's minimum
+   * width (wide docks squeezed the canvas to nothing). */
   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
-                                  GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scrolled),
                                               420);
   gtk_container_add (GTK_CONTAINER (scrolled), content);
@@ -970,6 +981,42 @@ panel_dockable (GimpExtensionPanel *panel)
                        NULL;
 }
 
+/* Whether any dock of this owner is currently shown. A layout (saved or the
+ * default sessionrc) that shows some of a plug-in's docks has decided which of
+ * them are open; its other docks then stay closed until opened explicitly. */
+/* A wrapping GTK 3 label otherwise asks for its whole text as its minimum
+ * width; give it a small minimum and a moderate natural width so docks keep
+ * the width the layout gives them and the text wraps to fit. */
+static void
+panel_label_wrap (GtkWidget *label)
+{
+  gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+  /* Break inside long unspaced text (paths, URLs) too, or one long word
+   * becomes the dock's minimum width */
+  gtk_label_set_line_wrap_mode (GTK_LABEL (label), PANGO_WRAP_WORD_CHAR);
+  gtk_label_set_width_chars (GTK_LABEL (label), 6);
+  gtk_label_set_max_width_chars (GTK_LABEL (label), 40);
+}
+
+static gboolean
+panel_owner_has_dock (const gchar *owner)
+{
+  GHashTableIter iter;
+  gpointer       value;
+
+  if (!panels)
+    return FALSE;
+  g_hash_table_iter_init (&iter, panels);
+  while (g_hash_table_iter_next (&iter, NULL, &value))
+    {
+      GimpExtensionPanel *panel = value;
+
+      if (!strcmp (panel->owner, owner) && panel_dockable (panel))
+        return TRUE;
+    }
+  return FALSE;
+}
+
 static gint
 panel_compare_registration (gconstpointer a,
                             gconstpointer b)
@@ -998,6 +1045,13 @@ panel_show_unrestored_idle (gpointer data)
    * them (factory_view_size increases per registration), so its first dock is
    * the first tab. */
   values = g_list_sort (values, panel_compare_registration);
+  for (iter = values; iter; iter = iter->next)
+    {
+      GimpExtensionPanel *panel = iter->data;
+
+      if (!panel_dockable (panel) && panel_owner_has_dock (panel->owner))
+        panel_mark_seen (panel);  /* left out by the layout: keep it closed */
+    }
   for (iter = values; iter; iter = iter->next)
     {
       GimpExtensionPanel *panel = iter->data;
@@ -1214,7 +1268,8 @@ gimp_extension_panel_register (Gimp        *gimp,
        * Extensions auto-started during gimp_restore() register before any image
        * window exists; gimp_extension_panel_show_unrestored() shows those. */
       if (newly_registered && gimp_is_restored (gimp) &&
-          !panel_dockable (panel) && !panel_was_seen (panel))
+          !panel_dockable (panel) && !panel_was_seen (panel) &&
+          !panel_owner_has_dock (owner))
         {
           GError *show_error = NULL;
 
