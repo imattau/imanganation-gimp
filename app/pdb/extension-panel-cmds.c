@@ -142,7 +142,7 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,
                                gimp_param_spec_string ("action-label", "action label",
-                                                       "Button label, or empty",
+                                                       "Button label (a strip shows a \"+\" tile with it as the tooltip), or empty",
                                                        FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
   gimp_procedure_add_argument (procedure,

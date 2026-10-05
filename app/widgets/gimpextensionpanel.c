@@ -1436,6 +1436,21 @@ panel_create_content (GimpExtensionPanel *panel)
             selected_child = GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (outer));
           }
         }
+      if (strip && panel->action_label && *panel->action_label)
+        {
+          /* A strip's action is a "+" tile after the last one (e.g. Add page) */
+          GtkWidget *add = gtk_button_new ();
+          GtkWidget *plus = gtk_label_new (NULL);
+
+          gtk_label_set_markup (GTK_LABEL (plus), "<span font='28'>+</span>");
+          gtk_container_add (GTK_CONTAINER (add), plus);
+
+          gtk_widget_set_tooltip_text (add, panel->action_label);
+          gtk_widget_set_size_request (add, 86, 112);
+          gtk_style_context_add_class (gtk_widget_get_style_context (add), "flat");
+          g_signal_connect (add, "clicked", G_CALLBACK (panel_action), panel);
+          gtk_container_add (GTK_CONTAINER (flow), add);
+        }
       if (selected_child)
         gtk_flow_box_select_child (
           GTK_FLOW_BOX (gtk_widget_get_parent (GTK_WIDGET (selected_child))),
@@ -1531,7 +1546,8 @@ panel_new (GimpDialogFactory *factory,
   panel->content_box = content;
   panel->view = box;
   g_object_add_weak_pointer (G_OBJECT (box), (gpointer *) &panel->view);
-  if (panel->action_label && *panel->action_label)
+  if (panel->action_label && *panel->action_label &&
+      strcmp (panel->presentation, "strip"))  /* a strip shows it as a tile */
     {
       GtkWidget *button = gtk_button_new_with_label (panel->action_label);
       g_signal_connect (button, "clicked", G_CALLBACK (panel_action), panel);
