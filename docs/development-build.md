@@ -16,7 +16,28 @@ ninja -C /tmp/imanganation-gimp-build
 ```
 
 If you already configured that directory, use `meson setup --reconfigure` to update
-it. The shared-library path must include the user-local dependency prefix when running
+it.
+
+With the dependency prefix, a build (`ninja`, or `ninja install`) also needs:
+
+```sh
+D="$HOME/.local/gimp-deps"
+export PYTHONNOUSERSITE=1          # see below
+export GI_GIR_PATH="$D/share/gir-1.0"
+export CPATH="$D/usr/include/poppler/glib:$D/usr/include/poppler:$D/usr/include"
+export LIBRARY_PATH="$D/usr/lib/x86_64-linux-gnu:$D/lib/x86_64-linux-gnu"
+```
+
+- `PYTHONNOUSERSITE=1`: the system `g-ir-scanner` imports `distutils.msvccompiler`. A
+  setuptools installed with `pip install --user` shadows Ubuntu's, and its distutils no
+  longer has that module (`ModuleNotFoundError: No module named
+  'distutils.msvccompiler'`); this makes Python skip `~/.local` for the build.
+- `GI_GIR_PATH`: `.gir` files the prefix provides (`Couldn't find include
+  'GExiv2-0.10.gir'`).
+- `CPATH` / `LIBRARY_PATH`: packages unpacked into the prefix (poppler-glib) keep
+  `.pc` files that point at `/usr` (`poppler.h: No such file or directory`).
+
+The sibling repository's `scripts/gimp-dev.sh` sets these for its install step. The shared-library path must include the user-local dependency prefix when running
 the uninstalled binaries:
 
 ```sh
