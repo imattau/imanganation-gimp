@@ -1,9 +1,9 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=GNU Image Manipulation Program
-GenericName=Image Editor
-Comment=Create images and edit photographs
+Name=Imanganation
+GenericName=Manga Creation Studio
+Comment=Create manga with AI-assisted art tools
 # TRANSLATORS: Search terms to find this application.
 # 1. Do NOT translate or localize the semicolons!
 # 2. The list MUST also end with a semicolon!
@@ -13,7 +13,7 @@ Comment=Create images and edit photographs
 Keywords=GIMP;graphic;design;illustration;painting;
 Exec=@GIMP_COMMAND@ %U
 TryExec=gimp-@GIMP_APP_VERSION@
-Icon=gimp
+Icon=imanganation
 Terminal=false
 Categories=Graphics;2DGraphics;RasterGraphics;GTK;
 StartupNotify=true

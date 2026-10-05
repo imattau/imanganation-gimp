@@ -12,27 +12,21 @@
   -->
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0+ AND LGPL-3.0+</project_license>
-  <developer_name>The GIMP team</developer_name>
-  <name>GNU Image Manipulation Program</name>
-  <summary>High-end image creation and manipulation</summary>
+  <developer_name>Imanganation</developer_name>
+  <name>Imanganation</name>
+  <summary>AI-assisted manga creation studio</summary>
   <description>
     <p>
-      GIMP is an acronym for GNU Image Manipulation Program. It is
-      Community-driven Free Software for high-end image creation and manipulation.
+      Imanganation is a creative studio for writing manga scripts, generating
+      consistent panels, and assembling finished pages.
     </p>
     <p>
-      It has many capabilities. It can be used as a paint program,
-      an expert quality photo retouching program, image composition,
-      an online batch processing system, a mass production image
-      renderer, an image format converter, etc.
+      AI-assisted panel generation runs locally, with familiar image editing
+      tools for finishing, lettering, and page layout.
     </p>
     <p>
-      GIMP is expandable and extensible. It is designed to be
-      augmented with plug-ins and extensions to do just about
-      anything. The advanced scripting interface allows everything
-      from the simplest task to the most complex image manipulation
-      procedures to be easily scripted. GIMP is available for Linux,
-      Microsoft Windows and macOS.
+      Imanganation combines a local generation engine with a customized
+      image editor. The current packaged release is available for Linux.
     </p>
   </description>
   <url type="bugtracker">@BUG_REPORT_URL@</url>

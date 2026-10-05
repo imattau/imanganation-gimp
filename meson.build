@@ -19,8 +19,8 @@ warnings = []
 ################################################################################
 # Project info
 
-prettyname = 'GIMP'
-full_name  = 'GNU Image Manipulation Program'
+prettyname = 'Imanganation'
+full_name  = 'Imanganation Manga Studio'
 
 # General version
 gimp_version = meson.project_version()
@@ -2114,6 +2114,9 @@ gimp_exe = find_program('tools'/'in-build-gimp.py')
 
 # gimp-data submodule part 2
 subdir('gimp-data/images/')
+
+# Imanganation's icon, About logo and splash, over gimp-data's
+subdir('branding')
 
 # Unit testing
 subdir('app/tests')
