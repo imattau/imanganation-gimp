@@ -32,12 +32,10 @@
 #include "config/gimprc.h"
 
 #include "core/gimp.h"
-#include "core/gimpimagefile.h"
 
-#include "file/file-open.h"
+#include "pdb/gimppdb.h"
+#include "pdb/gimppdberror.h"
 
-#include "widgets/gimpcontainerlistview.h"
-#include "widgets/gimpcontainerview.h"
 #include "widgets/gimpdialogfactory.h"
 #include "widgets/gimphelp-ids.h"
 #include "widgets/gimpprefsbox.h"
@@ -103,11 +101,9 @@ static void   welcome_dialog_new_dialog_response     (GtkWidget      *dialog,
                                                       GtkWidget      *welcome_dialog);
 static void   welcome_dialog_open_dialog_close       (GtkWidget      *dialog,
                                                       GtkWidget      *welcome_dialog);
-static void   welcome_open_activated_callback        (GimpContainerView *view,
-                                                      GimpViewable   *viewable,
+static void   welcome_dialog_project_action          (GtkWidget      *button,
                                                       GtkWidget      *welcome_dialog);
-static void   welcome_open_images_callback           (GtkWidget      *button,
-                                                      GimpContainerView *view);
+static gboolean welcome_dialog_project_action_idle   (gpointer        data);
 static void   welcome_dialog_new_image_accelerator   (GtkAccelGroup  *accel_group,
                                                       GObject        *accelerator_widget,
                                                       guint           keyval,
@@ -758,63 +754,58 @@ welcome_dialog_create_creation_page (Gimp       *gimp,
                                      GtkWidget  *welcome_dialog,
                                      GtkWidget  *main_vbox)
 {
-  GtkWidget *vbox;
   GtkWidget *hbox;
   GtkWidget *button;
-  GtkWidget *view;
+  GtkWidget *label;
+  GtkWidget *vbox;
   GtkWidget *toggle;
+
+  (void) gimp;
 
   hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
   gtk_box_pack_start (GTK_BOX (main_vbox), hbox, FALSE, FALSE, 0);
   gtk_widget_set_visible (hbox, TRUE);
 
-  vbox = prefs_frame_new (_("Create a New Image"), GTK_CONTAINER (hbox),
+  vbox = prefs_frame_new (_("Create a New Project"), GTK_CONTAINER (hbox),
                           FALSE);
 
-  button = gtk_button_new_with_mnemonic (_("C_reate"));
-  /* Balancing the indent from the frame */
+  label = gtk_label_new (_("Start an Imanganation project from a script, then "
+                           "build and arrange its pages here."));
+  gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+  gtk_widget_set_halign (label, GTK_ALIGN_START);
+  gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 6);
+  gtk_widget_set_visible (label, TRUE);
+
+  button = gtk_button_new_with_mnemonic (_("_Create New Project…"));
   gtk_widget_set_margin_end (button, 12);
   gtk_box_pack_start (GTK_BOX (vbox), button, FALSE, FALSE, 0);
   gtk_widget_set_visible (button, TRUE);
   g_signal_connect (button, "clicked",
-                    G_CALLBACK (welcome_dialog_new_image_dialog),
+                    G_CALLBACK (welcome_dialog_project_action),
                     welcome_dialog);
+  g_object_set_data (G_OBJECT (button), "imanganation-procedure",
+                     "plug-in-imanganation-new-project");
 
-  vbox = prefs_frame_new (_("Open an Existing Image"), GTK_CONTAINER (hbox),
+  vbox = prefs_frame_new (_("Open an Existing Project"), GTK_CONTAINER (hbox),
                           FALSE);
 
-  button = gtk_button_new_with_mnemonic (_("_Open"));
+  label = gtk_label_new (_("Continue work in a project folder containing "
+                           "project.json."));
+  gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+  gtk_widget_set_halign (label, GTK_ALIGN_START);
+  gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 6);
+  gtk_widget_set_visible (label, TRUE);
+
+  button = gtk_button_new_with_mnemonic (_("_Open Existing Project…"));
   gtk_widget_set_margin_end (button, 12);
   gtk_box_pack_start (GTK_BOX (vbox), button, FALSE, FALSE, 0);
   gtk_widget_set_visible (button, TRUE);
   g_signal_connect (button, "clicked",
-                    G_CALLBACK (welcome_dialog_open_image_dialog),
+                    G_CALLBACK (welcome_dialog_project_action),
                     welcome_dialog);
-
-  /* Recent Files */
-  vbox = prefs_frame_new (_("Recent Images"), GTK_CONTAINER (main_vbox),
-                          TRUE);
-
-  view = gimp_container_list_view_new (gimp->documents,
-                                       gimp_get_user_context (gimp),
-                                       32, 0);
-  gimp_container_view_set_selection_mode (GIMP_CONTAINER_VIEW (view),
-                                          GTK_SELECTION_MULTIPLE);
-  gtk_box_pack_start (GTK_BOX (vbox), view, TRUE, TRUE, 0);
-  gtk_widget_set_visible (view, TRUE);
-
-  g_signal_connect (view, "item-activated",
-                    G_CALLBACK (welcome_open_activated_callback),
-                    welcome_dialog);
-
-  button = gtk_button_new_with_mnemonic (_("O_pen Selected Images"));
-  gtk_box_pack_start (GTK_BOX (vbox), button, FALSE, FALSE, 0);
-  gtk_widget_set_visible (button, TRUE);
-
-  g_signal_connect (button, "clicked",
-                    G_CALLBACK (welcome_open_images_callback),
-                    view);
+  g_object_set_data (G_OBJECT (button), "imanganation-procedure",
+                     "plug-in-imanganation-project-docks");
 
   /* "Always show welcome dialog" checkbox */
   toggle = prefs_check_button_add (G_OBJECT (config), "show-welcome-dialog",
@@ -824,6 +815,75 @@ welcome_dialog_create_creation_page (Gimp       *gimp,
   gtk_container_child_set (GTK_CONTAINER (main_vbox), toggle,
                            "pack-type", GTK_PACK_END,
                            NULL);
+}
+
+typedef struct
+{
+  Gimp       *gimp;
+  gchar      *procedure;
+} WelcomeProjectAction;
+
+static void
+welcome_dialog_project_action (GtkWidget *button,
+                               GtkWidget *dialog)
+{
+  WelcomeProjectAction *action = g_new0 (WelcomeProjectAction, 1);
+
+  action->gimp      = g_object_get_data (G_OBJECT (dialog), "gimp");
+  action->procedure = g_strdup (g_object_get_data (G_OBJECT (button),
+                                                    "imanganation-procedure"));
+
+  /* Run outside the button signal: the plug-in may open a nested dialog. */
+  g_idle_add (welcome_dialog_project_action_idle, action);
+}
+
+static gboolean
+welcome_dialog_project_action_idle (gpointer data)
+{
+  WelcomeProjectAction *action = data;
+  GimpValueArray       *return_values;
+  GError               *error = NULL;
+  GimpPDBStatusType     status = GIMP_PDB_EXECUTION_ERROR;
+
+  return_values = gimp_pdb_execute_procedure_by_name (
+    action->gimp->pdb, gimp_get_user_context (action->gimp), NULL, &error,
+    action->procedure,
+    GIMP_TYPE_RUN_MODE, GIMP_RUN_INTERACTIVE,
+    G_TYPE_NONE);
+
+  if (return_values)
+    {
+      status = g_value_get_enum (gimp_value_array_index (return_values, 0));
+      gimp_value_array_unref (return_values);
+    }
+
+  if (error)
+    {
+      gchar *message;
+
+      if (g_error_matches (error, GIMP_PDB_ERROR,
+                           GIMP_PDB_ERROR_PROCEDURE_NOT_FOUND))
+        message = g_strdup (_("Imanganation project actions are unavailable. "
+                              "Start or install the Imanganation workspace, "
+                              "then try again."));
+      else
+        message = g_strdup (error->message);
+
+      gimp_message_literal (action->gimp, NULL, GIMP_MESSAGE_ERROR, message);
+      g_free (message);
+      g_clear_error (&error);
+    }
+  else if (status == GIMP_PDB_CALLING_ERROR ||
+           status == GIMP_PDB_EXECUTION_ERROR)
+    {
+      gimp_message_literal (action->gimp, NULL, GIMP_MESSAGE_ERROR,
+                            _("The Imanganation project action failed. "
+                              "Check that the workspace extension is running."));
+    }
+
+  g_free (action->procedure);
+  g_free (action);
+  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -1204,72 +1264,6 @@ welcome_dialog_open_dialog_close (GtkWidget *dialog,
 
   if (welcome_dialog)
     gtk_widget_set_visible (welcome_dialog, TRUE);
-}
-
-static void
-welcome_open_activated_callback (GimpContainerView *view,
-                                 GimpViewable      *viewable,
-                                 GtkWidget         *welcome_dialog)
-{
-  welcome_open_images_callback (NULL, view);
-}
-
-static void
-welcome_open_images_callback (GtkWidget         *button,
-                              GimpContainerView *view)
-{
-  Gimp      *gimp;
-  GList     *images;
-  GtkWidget *widget;
-  gboolean   opened = FALSE;
-
-  if (! welcome_dialog)
-    return;
-
-  gimp = g_object_get_data (G_OBJECT (welcome_dialog), "gimp");
-
-  widget = GTK_WIDGET (view);
-
-  if (gimp_container_view_get_selected (view, &images) > 0)
-    {
-      GList *iter;
-
-      gtk_widget_set_sensitive (welcome_dialog, FALSE);
-
-      for (iter = images; iter; iter = g_list_next (iter))
-        {
-          GFile              *file;
-          GimpImage          *image;
-          GimpPDBStatusType   status;
-          GError             *error = NULL;
-
-          file = gimp_imagefile_get_file (iter->data);
-
-          image = file_open_with_display (gimp,
-                                          gimp_get_user_context (gimp),
-                                          NULL, file, FALSE,
-                                          G_OBJECT (gimp_widget_get_monitor (widget)),
-                                          &status, &error);
-
-          if (! image && status != GIMP_PDB_CANCEL)
-            {
-              gimp_message (gimp, G_OBJECT (view), GIMP_MESSAGE_ERROR,
-                            _("Opening '%s' failed:\n\n%s"),
-                            gimp_file_get_utf8_name (file), error->message);
-              g_clear_error (&error);
-            }
-
-          if (image)
-            opened = TRUE;
-        }
-
-      g_list_free (images);
-    }
-
-  /* If no images were successfully opened, leave the dialogue up */
-  gtk_widget_set_sensitive (welcome_dialog, TRUE);
-  if (opened)
-    gtk_widget_destroy (welcome_dialog);
 }
 
 static void
