@@ -1526,6 +1526,35 @@ panel_create_scrolled_content (GimpExtensionPanel *panel)
   return scrolled;
 }
 
+/* The dock's action button follows the registered label: added, relabelled or
+ * hidden when the owner registers the dock again (e.g. switching from a welcome
+ * workspace to an open project and back). A strip shows its action as a tile. */
+static void
+panel_sync_action_button (GimpExtensionPanel *panel)
+{
+  gboolean wanted = panel->action_label && *panel->action_label &&
+                    strcmp (panel->presentation, "strip");
+
+  if (!panel->view)
+    return;
+  if (wanted && !panel->action_button)
+    {
+      GtkWidget *button = gtk_button_new_with_label (panel->action_label);
+
+      g_signal_connect (button, "clicked", G_CALLBACK (panel_action), panel);
+      gtk_box_pack_end (GTK_BOX (panel->view), button, FALSE, FALSE, 0);
+      panel->action_button = button;
+      g_object_add_weak_pointer (G_OBJECT (button),
+                                 (gpointer *) &panel->action_button);
+    }
+  if (panel->action_button)
+    {
+      if (wanted)
+        gtk_button_set_label (GTK_BUTTON (panel->action_button), panel->action_label);
+      gtk_widget_set_visible (panel->action_button, wanted);
+    }
+}
+
 static GtkWidget *
 panel_new (GimpDialogFactory *factory,
            GimpContext      *context,
@@ -1546,14 +1575,11 @@ panel_new (GimpDialogFactory *factory,
   panel->content_box = content;
   panel->view = box;
   g_object_add_weak_pointer (G_OBJECT (box), (gpointer *) &panel->view);
-  if (panel->action_label && *panel->action_label &&
-      strcmp (panel->presentation, "strip"))  /* a strip shows it as a tile */
-    {
-      GtkWidget *button = gtk_button_new_with_label (panel->action_label);
-      g_signal_connect (button, "clicked", G_CALLBACK (panel_action), panel);
-      gtk_box_pack_end (GTK_BOX (box), button, FALSE, FALSE, 0);
-      panel->action_button = button;
-    }
+  if (panel->action_button)  /* a previous view's: it goes with that view */
+    g_object_remove_weak_pointer (G_OBJECT (panel->action_button),
+                                  (gpointer *) &panel->action_button);
+  panel->action_button = NULL;
+  panel_sync_action_button (panel);
 
   gtk_widget_show_all (box);
   return box;
@@ -1592,6 +1618,9 @@ panel_free (GimpExtensionPanel *panel)
   if (panel->view)
     g_object_remove_weak_pointer (G_OBJECT (panel->view),
                                   (gpointer *) &panel->view);
+  if (panel->action_button)
+    g_object_remove_weak_pointer (G_OBJECT (panel->action_button),
+                                  (gpointer *) &panel->action_button);
   g_free (panel->owner);
   g_free (panel->identifier);
   g_free (panel->factory_identifier);
@@ -1992,6 +2021,8 @@ gimp_extension_panel_register (Gimp        *gimp,
         g_object_add_weak_pointer (G_OBJECT (panel->plug_in),
                                    (gpointer *) &panel->plug_in);
     }
+
+  panel_sync_action_button (panel);
 
   if (panel_factory)
     {
