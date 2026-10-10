@@ -76,6 +76,7 @@ typedef struct
   GtkWidget   *view;      /* weak: the panel's widget while a dock shows it */
   GimpPlugIn  *plug_in;   /* weak: the running instance that registered it */
   GtkWidget   *action_button;
+  gboolean     strip_tall; /* a strip dock is taller than wide: one column, not one row */
 } GimpExtensionPanel;
 
 /* GimpDockable requires its child to implement GimpDocked; the interface's
@@ -727,7 +728,16 @@ panel_tile_draw_marker (GtkWidget *tile,
     gtk_flow_box_child_is_selected (GTK_FLOW_BOX_CHILD (gtk_widget_get_parent (tile)))
     ? "theme_selected_fg_color" : "theme_selected_bg_color", &color);
   gdk_cairo_set_source_rgba (cr, &color);
-  cairo_rectangle (cr, side < 0 ? 0 : width - 4, 0, 4, height);
+  {
+    GtkWidget *flow = gtk_widget_get_parent (gtk_widget_get_parent (tile));
+
+    if (GTK_IS_FLOW_BOX (flow) &&
+        gtk_flow_box_get_max_children_per_line (GTK_FLOW_BOX (flow)) == 1 &&
+        gtk_orientable_get_orientation (GTK_ORIENTABLE (flow)) == GTK_ORIENTATION_HORIZONTAL)
+      cairo_rectangle (cr, 0, side < 0 ? 0 : height - 4, width, 4);  /* a column */
+    else
+      cairo_rectangle (cr, side < 0 ? 0 : width - 4, 0, 4, height);  /* a row */
+  }
   cairo_fill (cr);
   return FALSE;
 }
@@ -1109,9 +1119,11 @@ panel_new_tile_flow (GimpExtensionPanel *panel)
   if (!strcmp (panel->presentation, "strip"))
     {
       /* One horizontal row (e.g. a bottom page strip): vertical "lines"
-       * of a single tile each, scrolled sideways */
+       * of a single tile each, scrolled sideways. In a tall dock (panel_strip_wants_tall)
+       * it is one column instead: horizontal "lines" of a single tile, scrolled down. */
       gtk_orientable_set_orientation (GTK_ORIENTABLE (flow),
-                                      GTK_ORIENTATION_VERTICAL);
+                                      panel->strip_tall ? GTK_ORIENTATION_HORIZONTAL
+                                                        : GTK_ORIENTATION_VERTICAL);
       gtk_flow_box_set_max_children_per_line (GTK_FLOW_BOX (flow), 1);
       gtk_flow_box_set_min_children_per_line (GTK_FLOW_BOX (flow), 1);
       /* Tiles keep their own width instead of stretching across the strip */
@@ -1778,6 +1790,140 @@ panel_create_content (GimpExtensionPanel *panel)
   return container;
 }
 
+/* Strip layout: always a single line of tiles, a row when the dock is wide and a
+ * column when it is tall, scrolling along the line to reach the end. The shape comes
+ * from the dock's size with a band around square so it cannot flip back and forth. */
+static gboolean
+panel_strip_wants_tall (gboolean was_tall,
+                        gint     width,
+                        gint     height)
+{
+  if (width < 1 || height < 1)
+    return was_tall;
+  if (height * 10 > width * 11)
+    return TRUE;
+  if (height * 10 < width * 9)
+    return FALSE;
+  return was_tall;
+}
+
+static GtkWidget *
+panel_strip_flow (GtkWidget *scrolled)
+{
+  GtkWidget *view = gtk_bin_get_child (GTK_BIN (scrolled));  /* the viewport */
+
+  return view ? gtk_bin_get_child (GTK_BIN (view)) : NULL;
+}
+
+static void
+panel_strip_apply_layout (GtkWidget *scrolled,
+                          gboolean   tall)
+{
+  GtkWidget *flow = panel_strip_flow (scrolled);
+
+  if (flow)
+    gtk_orientable_set_orientation (GTK_ORIENTABLE (flow),
+                                    tall ? GTK_ORIENTATION_HORIZONTAL
+                                         : GTK_ORIENTATION_VERTICAL);
+  /* Along the line: scroll. Across it: the dock decides. */
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                  tall ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC,
+                                  GTK_POLICY_AUTOMATIC);
+  /* Never squeeze below a whole tile */
+  gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled),
+                                              tall ? 0 : 136);
+  gtk_scrolled_window_set_min_content_width (GTK_SCROLLED_WINDOW (scrolled),
+                                             tall ? 100 : 0);
+}
+
+/* Scroll so the selected tile is in view (the newest page, after Add page) */
+static gboolean
+panel_strip_scroll_to_selected_idle (gpointer data)
+{
+  GtkWidget *scrolled = data;
+  GtkWidget *flow = GTK_IS_SCROLLED_WINDOW (scrolled) ? panel_strip_flow (scrolled) : NULL;
+  GList     *selected = flow ? gtk_flow_box_get_selected_children (GTK_FLOW_BOX (flow)) : NULL;
+
+  if (selected)
+    {
+      GtkWidget     *child = GTK_WIDGET (selected->data);
+      GtkAllocation  allocation;
+      gint           x = 0, y = 0;
+      gboolean       column = gtk_orientable_get_orientation (GTK_ORIENTABLE (flow))
+                              == GTK_ORIENTATION_HORIZONTAL;
+
+      gtk_widget_get_allocation (child, &allocation);
+      if (gtk_widget_translate_coordinates (child, flow, 0, 0, &x, &y))
+        {
+          if (column)
+            gtk_adjustment_clamp_page (
+              gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (scrolled)),
+              y - 6, y + allocation.height + 6);
+          else
+            gtk_adjustment_clamp_page (
+              gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (scrolled)),
+              x - 6, x + allocation.width + 6);
+        }
+    }
+  g_list_free (selected);
+  g_object_unref (scrolled);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+panel_strip_scroll_to_selected (GtkWidget *scrolled)
+{
+  /* After a layout pass: right after a rebuild or a flip the tiles have no (or stale)
+   * positions yet */
+  g_timeout_add (80, panel_strip_scroll_to_selected_idle, g_object_ref (scrolled));
+}
+
+typedef struct
+{
+  gchar *owner;
+  gchar *identifier;
+  gboolean tall;
+} PanelStripFlip;
+
+static gboolean
+panel_strip_flip_idle (gpointer data)
+{
+  PanelStripFlip     *flip = data;
+  GimpExtensionPanel *panel = panel_lookup (flip->owner, flip->identifier);
+
+  if (panel && panel->strip_tall != flip->tall && panel->content_box &&
+      GTK_IS_SCROLLED_WINDOW (panel->content_box))
+    {
+      panel->strip_tall = flip->tall;
+      panel_strip_apply_layout (panel->content_box, flip->tall);
+      panel_strip_scroll_to_selected (panel->content_box);
+    }
+  g_free (flip->owner);
+  g_free (flip->identifier);
+  g_free (flip);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+panel_strip_size_allocate (GtkWidget          *scrolled,
+                           GdkRectangle       *allocation,
+                           GimpExtensionPanel *panel)
+{
+  gboolean tall = panel_strip_wants_tall (panel->strip_tall, allocation->width,
+                                          allocation->height);
+
+  if (tall != panel->strip_tall)
+    {
+      /* Changing the layout inside an allocation would re-enter it: do it from an idle */
+      PanelStripFlip *flip = g_new0 (PanelStripFlip, 1);
+
+      flip->owner = g_strdup (panel->owner);
+      flip->identifier = g_strdup (panel->identifier);
+      flip->tall = tall;
+      g_idle_add (panel_strip_flip_idle, flip);
+    }
+}
+
 static GtkWidget *
 panel_create_scrolled_content (GimpExtensionPanel *panel)
 {
@@ -1791,11 +1937,14 @@ panel_create_scrolled_content (GimpExtensionPanel *panel)
                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scrolled),
                                               420);
-  /* A strip is one row of tiles: never squeeze it below a whole tile */
-  if (!strcmp (panel->presentation, "strip"))
-    gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled),
-                                                136);
   gtk_container_add (GTK_CONTAINER (scrolled), content);
+  if (!strcmp (panel->presentation, "strip"))
+    {
+      /* One line of tiles, along the dock's long side (see panel_strip_wants_tall) */
+      panel_strip_apply_layout (scrolled, panel->strip_tall);
+      g_signal_connect (scrolled, "size-allocate",
+                        G_CALLBACK (panel_strip_size_allocate), panel);
+    }
 
   return scrolled;
 }
@@ -1848,6 +1997,8 @@ panel_new (GimpDialogFactory *factory,
 
   panel->content_box = content;
   panel->view = box;
+  if (!strcmp (panel->presentation, "strip"))
+    panel_strip_scroll_to_selected (content);
   g_object_add_weak_pointer (G_OBJECT (box), (gpointer *) &panel->view);
   if (panel->action_button)  /* a previous view's: it goes with that view */
     g_object_remove_weak_pointer (G_OBJECT (panel->action_button),
@@ -2417,6 +2568,7 @@ gimp_extension_panel_update (Gimp        *gimp,
 {
   GimpExtensionPanel *panel = panel_lookup (owner, identifier);
   GtkWidget *dockable;
+  gboolean   selection_changed;
 
   if (!panel)
     {
@@ -2451,6 +2603,8 @@ gimp_extension_panel_update (Gimp        *gimp,
       !strcmp (panel->content, content) &&
       !strcmp (panel->selected_item, selected_item))
     return TRUE;
+
+  selection_changed = g_strcmp0 (panel->selected_item, selected_item) != 0;
 
   g_free (panel->content);
   g_free (panel->selected_item);
@@ -2509,6 +2663,10 @@ gimp_extension_panel_update (Gimp        *gimp,
           gtk_adjustment_set_value (
             gtk_scrolled_window_get_vadjustment (
               GTK_SCROLLED_WINDOW (new_content)), vvalue);
+          /* A new selection (the page just added) scrolls into view; an update that
+           * keeps it leaves the strip where the artist scrolled it */
+          if (selection_changed && !strcmp (panel->presentation, "strip"))
+            panel_strip_scroll_to_selected (new_content);
           /* Keep the field being edited focused, with any uncommitted text */
           field = field_key ? panel_find_field (new_content, field_key) : NULL;
           if (field)
