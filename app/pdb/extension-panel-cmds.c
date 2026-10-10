@@ -157,6 +157,12 @@ extension_panel_procs_init (GimpPDB *pdb)
                                                        "field is edited. Or empty",
                                                        FALSE, FALSE, FALSE, NULL,
                                                        GIMP_PARAM_READWRITE));
+  gimp_procedure_add_argument (procedure,
+                               gimp_param_spec_string ("icon-name", "icon name",
+                                                       "Optional icon name from the active GIMP icon theme; "
+                                                       "omitted uses the plug-in icon",
+                                                       FALSE, TRUE, FALSE, NULL,
+                                                       GIMP_PARAM_READWRITE));
   gimp_pdb_register_procedure (pdb, procedure);
   g_object_unref (procedure);
 
@@ -207,14 +213,16 @@ panel_register_invoker (GimpProcedure        *procedure,
   const gchar *action_label = g_value_get_string (gimp_value_array_index (args, 5));
   const gchar *action_procedure = g_value_get_string (gimp_value_array_index (args, 6));
   const gchar *item_action_procedure = g_value_get_string (gimp_value_array_index (args, 7));
+  const gchar *icon_name = g_value_get_string (gimp_value_array_index (args, 8));
   GimpPlugIn *plug_in = gimp->plug_in_manager->current_plug_in;
   gchar *owner = panel_get_owner (plug_in);
   gboolean success = owner && gimp->gui.extension_panel_register &&
-    gimp->gui.extension_panel_register (gimp, owner, identifier, title, content,
+    gimp->gui.extension_panel_register (gimp, owner, identifier, title,
+                                        content,
                                         presentation,
                                         selected_item,
                                         action_label, action_procedure,
-                                        item_action_procedure, error);
+                                        item_action_procedure, icon_name, error);
 
   if (!owner)
     g_set_error_literal (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,

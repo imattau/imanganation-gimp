@@ -7,6 +7,31 @@
 # put ours in their place.
 
 branding_logo = files('imanganation-logo.svg')
+
+# GIMP's extension panels use icon names resolved from the active GIMP icon
+# theme. Keep these assets in the fork (not the upstream gimp-data submodule)
+# so Flatpak builds can ship them without requiring a GNOME repository change.
+panel_icons = files(
+  'panel-icons/imanganation-bubbles.svg',
+  'panel-icons/imanganation-bubbles-symbolic.svg',
+  'panel-icons/imanganation-characters.svg',
+  'panel-icons/imanganation-characters-symbolic.svg',
+  'panel-icons/imanganation-context.svg',
+  'panel-icons/imanganation-context-symbolic.svg',
+  'panel-icons/imanganation-gallery.svg',
+  'panel-icons/imanganation-gallery-symbolic.svg',
+  'panel-icons/imanganation-pages.svg',
+  'panel-icons/imanganation-pages-symbolic.svg',
+  'panel-icons/imanganation-panel.svg',
+  'panel-icons/imanganation-panel-symbolic.svg',
+  'panel-icons/imanganation-project.svg',
+  'panel-icons/imanganation-project-symbolic.svg',
+  'panel-icons/imanganation-script.svg',
+  'panel-icons/imanganation-script-symbolic.svg',
+)
+install_data(panel_icons,
+             install_dir: gimpdatadir / 'icons' / 'Default' / 'scalable' / 'apps')
+
 branding_copy = 'from pathlib import Path; from shutil import copy2; import sys, os; ' + \
                 'target = Path(os.environ.get("MESON_INSTALL_DESTDIR_PREFIX")) / sys.argv[2]; ' + \
                 'target.parent.mkdir(parents=True, exist_ok=True); copy2(sys.argv[1], target)'

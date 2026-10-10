@@ -30,6 +30,7 @@ gboolean gimp_extension_panel_register     (Gimp              *gimp,
                                             const gchar       *action_label,
                                             const gchar       *action_procedure,
                                             const gchar       *item_action_procedure,
+                                            const gchar       *icon_name,
                                             GError           **error);
 gboolean gimp_extension_panel_update       (Gimp              *gimp,
                                             const gchar       *owner,

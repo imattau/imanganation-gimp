@@ -96,6 +96,7 @@ struct _GimpGui
                                                const gchar       *action_label,
                                                const gchar       *action_procedure,
                                                const gchar       *item_action_procedure,
+                                               const gchar       *icon_name,
                                                GError           **error);
   gboolean       (* extension_panel_update) (Gimp                *gimp,
                                              const gchar         *owner,

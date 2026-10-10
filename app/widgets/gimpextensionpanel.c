@@ -63,6 +63,7 @@ typedef struct
   gchar       *identifier;
   gchar       *factory_identifier;
   gchar       *title;
+  gchar       *icon_name;
   gchar       *content;
   gchar       *presentation;
   gchar       *selected_item;
@@ -1898,6 +1899,7 @@ panel_free (GimpExtensionPanel *panel)
   g_free (panel->identifier);
   g_free (panel->factory_identifier);
   g_free (panel->title);
+  g_free (panel->icon_name);
   g_free (panel->content);
   g_free (panel->presentation);
   g_free (panel->selected_item);
@@ -2183,7 +2185,9 @@ panel_register_entry (GimpExtensionPanel *panel)
                                       panel->factory_identifier,
                                       panel->title, panel->title,
                                       /* gimp_dockable_new() rejects NULL icon and help ids */
-                                      GIMP_ICON_PLUGIN, GIMP_HELP_MAIN,
+                                      (panel->icon_name ? panel->icon_name :
+                                       GIMP_ICON_PLUGIN),
+                                      GIMP_HELP_MAIN,
                                       panel_new_generic, NULL,
                                       panel->factory_view_size,
                                       TRUE  /* singleton */,
@@ -2206,6 +2210,7 @@ gimp_extension_panel_register (Gimp        *gimp,
                                const gchar *action_label,
                                const gchar *action_procedure,
                                const gchar *item_action_procedure,
+                               const gchar *icon_name,
                                GError     **error)
 {
   GimpExtensionPanel *panel;
@@ -2221,6 +2226,8 @@ gimp_extension_panel_register (Gimp        *gimp,
       strlen (action_label) > 128 ||
       strlen (action_procedure) > 256 ||
       strlen (item_action_procedure) > 256 ||
+      (icon_name && (!*icon_name || strlen (icon_name) > 256 ||
+                     !g_utf8_validate (icon_name, -1, NULL))) ||
       strlen (selected_item) > EXTENSION_PANEL_MAX_ROW_BYTES ||
       (strcmp (presentation, "list") && strcmp (presentation, "tree") &&
        strcmp (presentation, "tiles") && strcmp (presentation, "strip") &&
@@ -2270,6 +2277,7 @@ gimp_extension_panel_register (Gimp        *gimp,
       g_hash_table_insert (panels, key, panel);
     }
   g_free (panel->title);
+  g_free (panel->icon_name);
   g_free (panel->content);
   g_free (panel->presentation);
   g_free (panel->selected_item);
@@ -2277,6 +2285,7 @@ gimp_extension_panel_register (Gimp        *gimp,
   g_free (panel->action_procedure);
   g_free (panel->item_action_procedure);
   panel->title = g_strdup (title);
+  panel->icon_name = g_strdup (icon_name);
   panel->content = g_strdup (content);
   panel->presentation = g_strdup (presentation);
   panel->selected_item = g_strdup (selected_item);
