@@ -1127,6 +1127,253 @@ panel_new_tile_flow (GimpExtensionPanel *panel)
   return flow;
 }
 
+/* Choice rows in a properties panel (the owner picks from lists it knows):
+ *
+ *   "?key\tLabel\tvalue\toption|option|…"   a drop-down that also takes typing
+ *   "+key\tLabel\tvalue\toption|option|…"   a check list, in order, in a pop-over
+ *
+ * "value" is the current text; for "+" a comma-separated list. Like a text field,
+ * a choice runs the panel's item action with "key\tnew value": for "?" when an
+ * option is picked or Enter/focus-out leaves typed text; for "+" when the pop-over
+ * closes. The new value of "+" is the ticked options, in the order shown (the
+ * arrows reorder), then any names typed in its "Add others" box. */
+static void
+panel_choice_commit (GtkWidget          *widget,
+                     const gchar        *text,
+                     GimpExtensionPanel *panel)
+{
+  const gchar *key = g_object_get_data (G_OBJECT (widget), "extension-panel-choice-key");
+  const gchar *value = g_object_get_data (G_OBJECT (widget), "extension-panel-choice-value");
+  const gchar *sent = g_object_get_data (G_OBJECT (widget), "extension-panel-choice-sent");
+
+  if (panel_rebuilding || !key || !value)
+    return;
+  if (strcmp (text, value) && g_strcmp0 (text, sent))
+    {
+      gchar *item = g_strdup_printf ("%s\t%s", key, text);
+
+      g_object_set_data_full (G_OBJECT (widget), "extension-panel-choice-sent",
+                              g_strdup (text), g_free);
+      panel_defer_run (panel, panel->item_action_procedure, item);
+      g_free (item);
+    }
+}
+
+static void
+panel_choice_one_commit (GtkComboBoxText    *combo,
+                         GimpExtensionPanel *panel)
+{
+  gchar *text = gtk_combo_box_text_get_active_text (combo);
+
+  if (!text)
+    text = g_strdup ("");
+  g_strstrip (text);
+  panel_choice_commit (GTK_WIDGET (combo), text, panel);
+  g_free (text);
+}
+
+static void
+panel_choice_one_changed (GtkComboBox        *combo,
+                          GimpExtensionPanel *panel)
+{
+  /* Typing also emits "changed"; only a picked option commits now */
+  if (gtk_combo_box_get_active (combo) >= 0)
+    panel_choice_one_commit (GTK_COMBO_BOX_TEXT (combo), panel);
+}
+
+static void
+panel_choice_one_activate (GtkEntry           *entry,
+                           GimpExtensionPanel *panel)
+{
+  panel_choice_one_commit (GTK_COMBO_BOX_TEXT (gtk_widget_get_ancestor (
+                                                 GTK_WIDGET (entry),
+                                                 GTK_TYPE_COMBO_BOX_TEXT)),
+                           panel);
+}
+
+static gboolean
+panel_choice_one_focus_out (GtkWidget          *entry,
+                            GdkEvent           *event,
+                            GimpExtensionPanel *panel)
+{
+  panel_choice_one_activate (GTK_ENTRY (entry), panel);
+  return FALSE;
+}
+
+static GtkWidget *
+panel_choice_one_new (GimpExtensionPanel *panel,
+                      const gchar        *key,
+                      const gchar        *value,
+                      gchar             **options)
+{
+  GtkWidget *combo = gtk_combo_box_text_new_with_entry ();
+  GtkWidget *entry = gtk_bin_get_child (GTK_BIN (combo));
+  gint       i;
+
+  for (i = 0; options[i]; i++)
+    if (*options[i])
+      gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), options[i]);
+  gtk_entry_set_text (GTK_ENTRY (entry), value);
+  gtk_widget_set_hexpand (combo, TRUE);
+  g_object_set_data_full (G_OBJECT (combo), "extension-panel-choice-key",
+                          g_strdup (key), g_free);
+  g_object_set_data_full (G_OBJECT (combo), "extension-panel-choice-value",
+                          g_strdup (value), g_free);
+  g_signal_connect (combo, "changed", G_CALLBACK (panel_choice_one_changed), panel);
+  g_signal_connect (entry, "activate", G_CALLBACK (panel_choice_one_activate), panel);
+  g_signal_connect (entry, "focus-out-event",
+                    G_CALLBACK (panel_choice_one_focus_out), panel);
+  return combo;
+}
+
+static void
+panel_choice_many_move (GtkButton *button,
+                        gpointer   direction)
+{
+  GtkWidget *row = gtk_widget_get_parent (GTK_WIDGET (button));
+  GtkWidget *rows = gtk_widget_get_parent (row);
+  GList     *children = gtk_container_get_children (GTK_CONTAINER (rows));
+  gint       index = g_list_index (children, row) + GPOINTER_TO_INT (direction);
+
+  if (index >= 0 && index < (gint) g_list_length (children))
+    gtk_box_reorder_child (GTK_BOX (rows), row, index);
+  g_list_free (children);
+}
+
+static void
+panel_choice_many_closed (GtkPopover         *popover,
+                          GimpExtensionPanel *panel)
+{
+  GtkWidget *button = gtk_popover_get_relative_to (popover);
+  GtkWidget *rows = g_object_get_data (G_OBJECT (popover), "extension-panel-choice-rows");
+  GtkWidget *others = g_object_get_data (G_OBJECT (popover), "extension-panel-choice-others");
+  GString   *text = g_string_new (NULL);
+  GList     *children = gtk_container_get_children (GTK_CONTAINER (rows));
+  GList     *list;
+  gchar    **typed;
+  gint       i;
+
+  for (list = children; list; list = list->next)
+    {
+      GtkWidget *check = g_object_get_data (G_OBJECT (list->data), "extension-panel-check");
+
+      if (check && gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (check)))
+        {
+          if (text->len)
+            g_string_append (text, ", ");
+          g_string_append (text, gtk_button_get_label (GTK_BUTTON (check)));
+        }
+    }
+  g_list_free (children);
+  typed = g_strsplit (gtk_entry_get_text (GTK_ENTRY (others)), ",", -1);
+  for (i = 0; typed[i]; i++)
+    {
+      g_strstrip (typed[i]);
+      if (*typed[i])
+        {
+          if (text->len)
+            g_string_append (text, ", ");
+          g_string_append (text, typed[i]);
+        }
+    }
+  g_strfreev (typed);
+  panel_choice_commit (button, text->str, panel);
+  g_string_free (text, TRUE);
+}
+
+static GtkWidget *
+panel_choice_many_new (GimpExtensionPanel *panel,
+                       const gchar        *key,
+                       const gchar        *value,
+                       gchar             **options)
+{
+  GtkWidget *button = gtk_menu_button_new ();
+  GtkWidget *label = gtk_label_new (*value ? value : "—");
+  GtkWidget *popover = gtk_popover_new (button);
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  GtkWidget *rows = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *scrolled = gtk_scrolled_window_new (NULL, NULL);
+  GtkWidget *others = gtk_entry_new ();
+  gchar    **current = g_strsplit (value, ",", -1);
+  GPtrArray *names;
+  gint       i, j;
+
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  panel_label_wrap (label);
+  gtk_container_add (GTK_CONTAINER (button), label);
+  gtk_widget_set_hexpand (button, TRUE);
+  gtk_widget_set_halign (button, GTK_ALIGN_FILL);
+  for (j = 0; current[j]; j++)
+    g_strstrip (current[j]);
+
+  /* What is ticked now comes first, in its order (a character's place in the frame
+   * follows it); the other options follow */
+  names = g_ptr_array_new ();
+  for (j = 0; current[j]; j++)
+    if (*current[j])
+      g_ptr_array_add (names, current[j]);
+  for (i = 0; options[i]; i++)
+    {
+      gboolean listed = FALSE;
+
+      for (j = 0; current[j]; j++)
+        listed = listed || !g_strcmp0 (current[j], options[i]);
+      if (*options[i] && !listed)
+        g_ptr_array_add (names, options[i]);
+    }
+  for (i = 0; i < (gint) names->len; i++)
+    {
+      GtkWidget *row;
+      GtkWidget *check;
+      GtkWidget *arrow;
+      const gchar *option = g_ptr_array_index (names, i);
+      gboolean   ticked = FALSE;
+
+      for (j = 0; current[j]; j++)
+        ticked = ticked || !g_strcmp0 (current[j], option);
+      row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+      check = gtk_check_button_new_with_label (option);
+      gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (check), ticked);
+      gtk_box_pack_start (GTK_BOX (row), check, TRUE, TRUE, 0);
+      arrow = gtk_button_new_with_label ("▼");
+      gtk_button_set_relief (GTK_BUTTON (arrow), GTK_RELIEF_NONE);
+      g_signal_connect (arrow, "clicked", G_CALLBACK (panel_choice_many_move),
+                        GINT_TO_POINTER (1));
+      gtk_box_pack_end (GTK_BOX (row), arrow, FALSE, FALSE, 0);
+      arrow = gtk_button_new_with_label ("▲");
+      gtk_button_set_relief (GTK_BUTTON (arrow), GTK_RELIEF_NONE);
+      g_signal_connect (arrow, "clicked", G_CALLBACK (panel_choice_many_move),
+                        GINT_TO_POINTER (-1));
+      gtk_box_pack_end (GTK_BOX (row), arrow, FALSE, FALSE, 0);
+      g_object_set_data (G_OBJECT (row), "extension-panel-check", check);
+      gtk_box_pack_start (GTK_BOX (rows), row, FALSE, FALSE, 0);
+    }
+  g_ptr_array_free (names, TRUE);
+  g_strfreev (current);
+
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER,
+                                  GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled), 60);
+  gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scrolled), 260);
+  gtk_scrolled_window_set_propagate_natural_height (GTK_SCROLLED_WINDOW (scrolled), TRUE);
+  gtk_container_add (GTK_CONTAINER (scrolled), rows);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (others), "Add others, comma-separated");
+  gtk_box_pack_start (GTK_BOX (box), scrolled, TRUE, TRUE, 0);
+  gtk_box_pack_start (GTK_BOX (box), others, FALSE, FALSE, 0);
+  gtk_container_set_border_width (GTK_CONTAINER (box), 8);
+  gtk_widget_show_all (box);
+  gtk_container_add (GTK_CONTAINER (popover), box);
+  gtk_menu_button_set_popover (GTK_MENU_BUTTON (button), popover);
+  g_object_set_data (G_OBJECT (popover), "extension-panel-choice-rows", rows);
+  g_object_set_data (G_OBJECT (popover), "extension-panel-choice-others", others);
+  g_object_set_data_full (G_OBJECT (button), "extension-panel-choice-key",
+                          g_strdup (key), g_free);
+  g_object_set_data_full (G_OBJECT (button), "extension-panel-choice-value",
+                          g_strdup (value), g_free);
+  g_signal_connect (popover, "closed", G_CALLBACK (panel_choice_many_closed), panel);
+  return button;
+}
+
 static GtkWidget *
 panel_create_content (GimpExtensionPanel *panel)
 {
@@ -1174,6 +1421,32 @@ panel_create_content (GimpExtensionPanel *panel)
               continue;
             }
           buttons = NULL;
+
+          if (items[i][0] == '?' || items[i][0] == '+')
+            {
+              gchar **parts = g_strsplit (items[i] + 1, "\t", 4);
+
+              if (g_strv_length (parts) == 4)
+                {
+                  gchar    **options = g_strsplit (parts[3], "|", -1);
+                  GtkWidget *name = gtk_label_new (parts[1]);
+                  GtkWidget *choice = items[i][0] == '?'
+                    ? panel_choice_one_new (panel, parts[0], parts[2], options)
+                    : panel_choice_many_new (panel, parts[0], parts[2], options);
+
+                  gtk_label_set_xalign (GTK_LABEL (name), 0.0);
+                  gtk_widget_set_valign (name, GTK_ALIGN_START);
+                  gtk_widget_set_margin_top (name, 5);
+                  gtk_style_context_add_class (gtk_widget_get_style_context (name),
+                                               GTK_STYLE_CLASS_DIM_LABEL);
+                  gtk_grid_attach (GTK_GRID (grid), name, 0, row, 1, 1);
+                  gtk_grid_attach (GTK_GRID (grid), choice, 1, row++, 1, 1);
+                  g_strfreev (options);
+                  g_strfreev (parts);
+                  continue;
+                }
+              g_strfreev (parts);  /* malformed: shown as plain text below */
+            }
 
           if (items[i][0] == '@' && (separator = strchr (items[i], '\t')) &&
               strchr (separator + 1, '\t'))
