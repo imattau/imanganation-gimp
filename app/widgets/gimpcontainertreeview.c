@@ -1036,9 +1036,24 @@ gimp_container_tree_view_remove_item (GimpContainerView *view,
   GimpContainerTreeView *tree_view = GIMP_CONTAINER_TREE_VIEW (view);
   GtkTreeIter           *iter      = (GtkTreeIter *) insert_data;
 
+  /* Removing the selected row makes GTK emit "changed" on the selection
+   * while the store is still being modified. Reacting to it re-selects
+   * layers right there, and a tool initialized by that (e.g. a transform
+   * tool hiding the new layer) changes item visibility, which updates
+   * rows of the half-modified store and crashes. The image selects the
+   * new item itself once the item is removed, so don't react to it here.
+   */
+  g_signal_handlers_block_by_func (tree_view->priv->selection,
+                                   gimp_container_tree_view_selection_changed,
+                                   tree_view);
+
   gimp_container_tree_store_remove_item (GIMP_CONTAINER_TREE_STORE (tree_view->model),
                                          viewable,
                                          iter);
+
+  g_signal_handlers_unblock_by_func (tree_view->priv->selection,
+                                     gimp_container_tree_view_selection_changed,
+                                     tree_view);
 
   if (iter)
     gtk_tree_view_columns_autosize (tree_view->view);
