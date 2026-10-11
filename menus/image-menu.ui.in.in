@@ -6,6 +6,9 @@
     <submenu>
       <attribute name="label" translatable="yes" context="file-action">_File</attribute>
       <section>
+        <attribute name="section-name" translatable="no">Imanganation</attribute>
+      </section>
+      <section>
         <attribute name="section-name" translatable="no">Open</attribute>
         <item><attribute name="action">app.image-new</attribute></item>
         <submenu>
