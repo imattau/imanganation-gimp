@@ -680,6 +680,7 @@ xcf_load_image (Gimp     *gimp,
   gint                n_broken_effects        = 0;
   GList              *layers;
   GList              *broken_paths            = NULL;
+  GList              *floating_path           = NULL;
   GList              *group_layers            = NULL;
   GList              *syms;
   GList              *iter;
@@ -1080,6 +1081,13 @@ xcf_load_image (Gimp     *gimp,
           gimp_group_layer_suspend_resize (group, FALSE);
         }
 
+      /* remember where a floating selection sits in the layer tree */
+      if (layer == info->floating_sel && item_path)
+        {
+          g_list_free (floating_path);
+          floating_path = g_list_copy (item_path);
+        }
+
       /* add the layer to the image if its not the floating selection */
       if (layer != info->floating_sel)
         {
@@ -1092,17 +1100,42 @@ xcf_load_image (Gimp     *gimp,
               if (info->floating_sel)
                 {
                   /* there is a floating selection, but it will get
-                   * added after all layers are loaded, so toplevel
-                   * layer indices are off-by-one. Adjust item paths
-                   * accordingly:
+                   * added after all layers are loaded, so the indices
+                   * of the layers saved after it in its container are
+                   * off-by-one. A top-level floating selection has no
+                   * item path; a nested one (for example left inside a
+                   * layer group by an unfinished transform) has one,
+                   * and only the layers sharing its parent are
+                   * affected. Adjust item paths accordingly:
                    */
-                  gint toplevel_index;
+                  GList *fs_path  = floating_path;
+                  GList *path     = item_path;
+                  gint   depth    = 0;
+                  gint   fs_depth = g_list_length (fs_path);
 
-                  toplevel_index = GPOINTER_TO_UINT (item_path->data);
+                  if (fs_depth == 0)
+                    fs_depth = 1;
 
-                  toplevel_index--;
+                  while (path && depth < fs_depth)
+                    {
+                      guint idx = GPOINTER_TO_UINT (path->data);
 
-                  item_path->data = GUINT_TO_POINTER (toplevel_index);
+                      if (depth == fs_depth - 1)
+                        {
+                          guint fs_idx = fs_path ?
+                                         GPOINTER_TO_UINT (g_list_nth_data (fs_path, depth)) : 0;
+
+                          if (idx > fs_idx)
+                            path->data = GUINT_TO_POINTER (idx - 1);
+                        }
+                      else if (idx != GPOINTER_TO_UINT (g_list_nth_data (fs_path, depth)))
+                        {
+                          break;
+                        }
+
+                      path = path->next;
+                      depth++;
+                    }
                 }
 
               parent = GIMP_LAYER
@@ -1132,6 +1165,7 @@ xcf_load_image (Gimp     *gimp,
       if (! xcf_seek_pos (info, saved_pos, NULL))
         goto error;
     }
+  g_clear_pointer (&floating_path, g_list_free);
   g_list_free_full (loop_files, g_object_unref);
   loop_files = NULL;
 
